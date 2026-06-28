@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VJ 01 — LUMEN</title>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="t">01 LUMEN</div>
+      <div class="row">
+        <span class="k">BPM</span> <span id="hBpm">--</span> <span class="k">REGIME</span>
+        <span id="hReg">0 NEBULA</span> <span class="k">SRC</span> <span id="hSrc">--</span>
+        <span class="k">CHG</span> <span id="hChg">0.00</span>
+      </div>
+      <div class="row beats">
+        <span class="k">KIK</span><span id="dotK" class="dot"></span> <span class="k">SNR</span
+        ><span id="dotS" class="dot"></span> <span class="k">HAT</span
+        ><span id="dotH" class="dot"></span>
+      </div>
+      <div id="bars"></div>
+      <div class="k keys">
+        [S] regime&nbsp; [R] reseed&nbsp; [P] post&nbsp; [F] fullscreen&nbsp; [H] hud
+      </div>
+    </div>
+
+    <div id="overlay">
+      <h1>01 <span>LUMEN</span></h1>
+      <p>
+        周波数帯ごとに積層した約40万パーティクルの3D星雲。各帯域のエネルギーがその「リング」を膨張させ、<br />
+        スペクトルが立体構造としてそのまま読み取れます。キック/スネア/ハットを独立に検出し、<br />
+        キックは衝撃波とカメラの打撃、ハットは高域の煌めき、noveltyで配色・場の挙動が切替わります。<br /><br />
+        ※ マイクがブロックされる環境では「デモ音源」を使ってください。
+      </p>
+      <div class="btns">
+        <button id="bMic">マイク入力で開始</button>
+        <button id="bDemo">デモ音源で開始</button>
+      </div>
+    </div>
+
+    <div id="err"><div id="errMsg">WebGL2 を初期化できませんでした。</div></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
