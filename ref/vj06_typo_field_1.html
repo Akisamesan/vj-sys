@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VJ 06 — TYPO FIELD</title>
+    <style>
+      :root {
+        --accent: #ff5ea8;
+        --dim: rgba(255, 255, 255, 0.45);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+        color: #fff;
+      }
+      canvas#gl {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 10;
+        text-align: center;
+        padding: 24px;
+      }
+      #overlay h1 {
+        font-size: clamp(22px, 4vw, 40px);
+        font-weight: 700;
+        letter-spacing: 0.35em;
+      }
+      #overlay h1 span {
+        color: var(--accent);
+      }
+      #overlay p {
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.9;
+        max-width: 48em;
+      }
+      .btns {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        letter-spacing: 0.15em;
+        padding: 13px 26px;
+        cursor: pointer;
+        background: transparent;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        transition: 0.2s;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 5;
+        font-size: 11px;
+        line-height: 1.9;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        transition: opacity 0.6s;
+        mix-blend-mode: difference;
+      }
+      #hud .t {
+        color: var(--accent);
+        letter-spacing: 0.25em;
+        margin-bottom: 4px;
+      }
+      #hud .k {
+        color: var(--dim);
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: #000;
+        z-index: 20;
+        color: #f66;
+        font-size: 13px;
+        padding: 24px;
+        text-align: center;
+        line-height: 2;
+      }
+      .hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="t">06 TYPO FIELD</div>
+      <div>
+        <span class="k">BPM</span> <span id="hBpm">--</span> &nbsp;<span class="k">STRUCTS</span>
+        <span id="hW">0</span> &nbsp;<span class="k">E</span> <span id="hE">0.0</span>
+      </div>
+      <div><span class="k">CHG</span> <span id="hChg">0.00</span></div>
+      <div class="k">[R] clear field&nbsp; [F] fullscreen&nbsp; [H] hud</div>
+    </div>
+
+    <div id="overlay">
+      <h1>06 <span>TYPO</span> FIELD</h1>
+      <p>
+        エネルギー場のセルオートマトン上に文字が現れるタイポグラフィVJ。<br />
+        ビートと帯域ウォーカーが<b>局所的に</b>エネルギーを注入し、拡散した場の濃度に応じて記号→グリフ→密なグリフが出現。<br />
+        エネルギー極大点では小グリフで構成された<b>抽象構造体</b>(リング/弧/バー/クロス/フレーム)が場を消費して結晶化し、寿命が尽きるとグリフ単位で崩壊します。グリッチも行エネルギー比例の局所発生。<br /><br />
+        ※ マイクがブロックされる環境では「デモ音源」を使ってください。
+      </p>
+      <div class="btns">
+        <button id="bMic">マイク入力で開始</button>
+        <button id="bDemo">デモ音源で開始</button>
+      </div>
+    </div>
+
+    <div id="err"><div id="errMsg">WebGL2 を初期化できませんでした。</div></div>
+
+    <script>
+      "use strict";
+      /* ================= AUDIO ENGINE(共通) ================= */
+      class AudioEngine {
+        constructor() {
+          this.ctx = null;
+          this.an = null;
+          this.freq = null;
+          this.prevF = null;
+          this.running = false;
+          this.bass = 0;
+          this.mid = 0;
+          this.high = 0;
+          this.bassSlow = 0;
+          this.fluxF = 0;
+          this.fluxS = 1e-4;
+          this.novelty = 1;
+          this.change = 0.1;
+          this.centroid = 0.3;
+          this.beat = 0;
+          this.beatPulse = 0;
+          this.lastBeat = -1;
+          this.intervals = [];
+          this.bpm = 0;
+          this.beatCount = 0;
+        }
+        async initMic() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const st = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+          this._setup(this.ctx.createMediaStreamSource(st), false);
+        }
+        initDemo() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.demo = new DemoLoop(this.ctx);
+          this._setup(this.demo.out, true);
+          this.demo.start();
+        }
+        _setup(src, toDest) {
+          this.an = this.ctx.createAnalyser();
+          this.an.fftSize = 2048;
+          this.an.smoothingTimeConstant = 0.5;
+          src.connect(this.an);
+          if (toDest) this.an.connect(this.ctx.destination);
+          this.freq = new Uint8Array(this.an.frequencyBinCount);
+          this.prevF = new Uint8Array(this.an.frequencyBinCount);
+          this.running = true;
+        }
+        update(dt) {
+          if (!this.running) return;
+          this.prevF.set(this.freq);
+          this.an.getByteFrequencyData(this.freq);
+          const n = this.freq.length,
+            binHz = this.ctx.sampleRate / 2 / n;
+          const bTo = Math.max(3, Math.round(160 / binHz)),
+            mTo = Math.round(2200 / binHz);
+          let b = 0,
+            m = 0,
+            h = 0,
+            flux = 0;
+          for (let i = 1; i < n; i++) {
+            const v = this.freq[i] / 255;
+            if (i < bTo) b += v;
+            else if (i < mTo) m += v;
+            else h += v;
+            const d = (this.freq[i] - this.prevF[i]) / 255;
+            if (d > 0) flux += d;
+          }
+          b /= bTo;
+          m /= mTo - bTo;
+          h /= n - mTo;
+          flux /= n * 0.05;
+          const k = 1 - Math.exp(-dt * 12);
+          this.bass += (b - this.bass) * k;
+          this.mid += (m - this.mid) * k;
+          this.high += (h - this.high) * k;
+          this.fluxF += (flux - this.fluxF) * (1 - Math.exp(-dt * 8));
+          this.fluxS += (flux - this.fluxS) * (1 - Math.exp(-dt * 0.35));
+          this.novelty = this.fluxF / Math.max(this.fluxS, 1e-4);
+          this.change = Math.min(1, Math.max(0.06, (this.novelty - 0.8) * 0.8));
+          this.bassSlow += (b - this.bassSlow) * (1 - Math.exp(-dt * 1.2));
+          const t = this.ctx.currentTime;
+          this.beat = 0;
+          if (b > this.bassSlow * 1.32 + 0.04 && t - this.lastBeat > 0.27) {
+            const iv = t - this.lastBeat;
+            this.beat = 1;
+            this.beatPulse = 1;
+            this.lastBeat = t;
+            this.beatCount++;
+            if (iv > 0.27 && iv < 1.6) {
+              this.intervals.push(iv);
+              if (this.intervals.length > 10) this.intervals.shift();
+              const s = [...this.intervals].sort((a, c) => a - c);
+              this.bpm = Math.round(60 / s[s.length >> 1]);
+            }
+          }
+          this.beatPulse *= Math.exp(-dt * 5.5);
+        }
+      }
+      class DemoLoop {
+        constructor(ctx) {
+          this.ctx = ctx;
+          this.out = ctx.createGain();
+          this.out.gain.value = 0.9;
+          this.bpm = 126;
+          this.step = 0;
+          this.next = 0;
+          this.bar = 0;
+          this.section = 0;
+        }
+        start() {
+          this.next = this.ctx.currentTime + 0.1;
+          this.timer = setInterval(() => this._sched(), 25);
+        }
+        _sched() {
+          const spb = 60 / this.bpm / 4;
+          while (this.next < this.ctx.currentTime + 0.12) {
+            this._play(this.step % 16, this.next);
+            this.step++;
+            if (this.step % 16 === 0) {
+              this.bar++;
+              if (this.bar % 8 === 0) this.section = (this.section + 1) % 4;
+            }
+            this.next += spb;
+          }
+        }
+        _play(s, t) {
+          const sec = this.section;
+          if (sec !== 3 && s % 4 === 0) this.kick(t);
+          if (sec >= 1 && s % 2 === 1) this.hat(t, 0.12);
+          if (sec === 2 && s % 2 === 0) this.hat(t, 0.05);
+          if (sec === 2 && (s === 4 || s === 12)) this.clap(t);
+          const notes = [55, 55, 0, 55, 0, 55, 0, 82.4, 55, 0, 55, 55, 0, 65.4, 0, 49];
+          if (sec !== 3 && notes[s]) this.bass(t, notes[s], sec === 2 ? 1500 : 520);
+          if (sec === 3 && s === 0) this.pad(t);
+        }
+        kick(t) {
+          const o = this.ctx.createOscillator(),
+            g = this.ctx.createGain();
+          o.frequency.setValueAtTime(160, t);
+          o.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+          g.gain.setValueAtTime(1, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          o.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.3);
+        }
+        _nbuf() {
+          if (!this._nb) {
+            const b = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+            const d = b.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            this._nb = b;
+          }
+          return this._nb;
+        }
+        hat(t, dec) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "highpass";
+          f.frequency.value = 7500;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.22, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + dec + 0.02);
+        }
+        clap(t) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "bandpass";
+          f.frequency.value = 1600;
+          f.Q.value = 1.2;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.5, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + 0.2);
+        }
+        bass(t, fq, cut) {
+          const o = this.ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.value = fq;
+          const f = this.ctx.createBiquadFilter();
+          f.type = "lowpass";
+          f.frequency.value = cut;
+          f.Q.value = 6;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.3, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
+          o.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.24);
+        }
+        pad(t) {
+          [220, 277.2, 329.6].forEach((fq, i) => {
+            const o = this.ctx.createOscillator();
+            o.type = "sawtooth";
+            o.frequency.value = fq * (i === 1 ? 1.004 : 1);
+            const f = this.ctx.createBiquadFilter();
+            f.type = "lowpass";
+            f.frequency.setValueAtTime(380, t);
+            f.frequency.linearRampToValueAtTime(2300, t + 3.4);
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.12, t + 0.6);
+            g.gain.linearRampToValueAtTime(0, t + 3.7);
+            o.connect(f);
+            f.connect(g);
+            g.connect(this.out);
+            o.start(t);
+            o.stop(t + 3.8);
+          });
+        }
+      }
+
+      /* ================= エネルギー場(セルオートマトン) ================= */
+      const TIER1 = "・.。、´`";
+      const TIER2 = "-=+:;ハミニイトリ";
+      const TIER3 =
+        "アウエオカキクケコサシスセソタチツテナヌネノヒフヘホマムメモヤユヨラルレロワヲン";
+      const TIER4 = "※≡＃◇□△▽〇◎＋×";
+      /* 結晶化する大きな構造体: 意味のある語ではなく、小グリフで構成された抽象形 */
+      const SHAPES = ["ring", "arc", "bar", "cross", "frame"];
+      const SGLYPH = TIER2 + TIER3;
+      const FONT =
+        "'Hiragino Kaku Gothic ProN','Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif";
+
+      const field = {
+        cols: 0,
+        rows: 0,
+        cell: 26,
+        E: null,
+        E2: null,
+        seed: null,
+        init(w, h) {
+          this.cols = Math.max(8, Math.floor(w / this.cell));
+          this.rows = Math.max(6, Math.floor(h / this.cell));
+          const n = this.cols * this.rows;
+          this.E = new Float32Array(n);
+          this.E2 = new Float32Array(n);
+          this.seed = new Uint16Array(n);
+          for (let i = 0; i < n; i++) this.seed[i] = Math.random() * 65535;
+        },
+        idx(c, r) {
+          return r * this.cols + c;
+        },
+        inject(c, r, amt, rad) {
+          rad = rad || 0;
+          for (let dr = -rad; dr <= rad; dr++)
+            for (let dc = -rad; dc <= rad; dc++) {
+              const cc = c + dc,
+                rr = r + dr;
+              if (cc < 0 || cc >= this.cols || rr < 0 || rr >= this.rows) continue;
+              const fall = 1 / (1 + dc * dc + dr * dr);
+              this.E[this.idx(cc, rr)] = Math.min(1.5, this.E[this.idx(cc, rr)] + amt * fall);
+            }
+        },
+        step(dt) {
+          const { cols, rows, E, E2 } = this;
+          const diff = Math.min(0.45, 3.4 * dt); // 拡散
+          const dec = Math.exp(-dt * 0.85); // 減衰
+          for (let r = 0; r < rows; r++)
+            for (let c = 0; c < cols; c++) {
+              const i = r * cols + c;
+              const l = E[c > 0 ? i - 1 : i],
+                ri = E[c < cols - 1 ? i + 1 : i],
+                u = E[r > 0 ? i - cols : i],
+                d = E[r < rows - 1 ? i + cols : i];
+              E2[i] = (E[i] + ((l + ri + u + d) * 0.25 - E[i]) * diff) * dec;
+            }
+          this.E.set(E2);
+        },
+        maxCell() {
+          let mi = 0,
+            mv = -1;
+          for (let i = 0; i < this.E.length; i++)
+            if (this.E[i] > mv) {
+              mv = this.E[i];
+              mi = i;
+            }
+          return { c: mi % this.cols, r: (mi / this.cols) | 0, v: mv };
+        },
+        avg() {
+          let s = 0;
+          for (let i = 0; i < this.E.length; i++) s += this.E[i];
+          return s / this.E.length;
+        },
+      };
+
+      /* 帯域ウォーカー: 低/中/高域がそれぞれ別の場所を歩きながらエネルギーを注ぐ */
+      const walkers = [
+        { c: 0, r: 0, ang: 0, band: "bass", gain: 5.0 },
+        { c: 0, r: 0, ang: 2, band: "mid", gain: 6.5 },
+        { c: 0, r: 0, ang: 4, band: "high", gain: 7.5 },
+      ];
+      function initWalkers() {
+        for (const w of walkers) {
+          w.c = Math.random() * field.cols;
+          w.r = Math.random() * field.rows;
+        }
+      }
+
+      /* 結晶化した抽象構造体 */
+      let words = [],
+        lastSpawn = 0;
+
+      function structPath(w) {
+        // 形状に沿った点列(構造体はこの点列上に小グリフを並べて描く)
+        const pts = [],
+          n = w.n;
+        if (w.type === "ring" || w.type === "arc") {
+          const span = w.type === "ring" ? Math.PI * 2 : Math.PI * 1.25;
+          for (let k = 0; k < n; k++) {
+            const a = w.rot + (span * k) / (w.type === "ring" ? n : Math.max(1, n - 1));
+            pts.push([Math.cos(a) * w.size, Math.sin(a) * w.size]);
+          }
+        } else if (w.type === "bar") {
+          for (let k = 0; k < n; k++) {
+            const p = (k / Math.max(1, n - 1) - 0.5) * 2;
+            pts.push([Math.cos(w.rot) * p * w.size * 1.6, Math.sin(w.rot) * p * w.size * 1.6]);
+          }
+        } else if (w.type === "cross") {
+          const h = n >> 1;
+          for (let k = 0; k < h; k++) {
+            const p = (k / Math.max(1, h - 1) - 0.5) * 2;
+            pts.push([Math.cos(w.rot) * p * w.size * 1.4, Math.sin(w.rot) * p * w.size * 1.4]);
+          }
+          for (let k = 0; k < n - h; k++) {
+            const p = (k / Math.max(1, n - h - 1) - 0.5) * 2;
+            pts.push([-Math.sin(w.rot) * p * w.size * 1.4, Math.cos(w.rot) * p * w.size * 1.4]);
+          }
+        } else {
+          // frame: 正方形の輪郭
+          for (let k = 0; k < n; k++) {
+            const u = (k / n) * 4,
+              s = u | 0,
+              f = u - s,
+              S = w.size;
+            const e = [
+              [-1 + 2 * f, -1],
+              [1, -1 + 2 * f],
+              [1 - 2 * f, 1],
+              [-1, 1 - 2 * f],
+            ][s % 4];
+            pts.push([e[0] * S, e[1] * S]);
+          }
+        }
+        return pts;
+      }
+
+      /* ================= TEXT LAYER(Canvas2D) ================= */
+      const txt = document.createElement("canvas");
+      const tc = txt.getContext("2d");
+      let TW = 960,
+        TH = 540;
+
+      function pick(s, n) {
+        return s[Math.abs(n) % s.length];
+      }
+
+      function drawText(A, t, dt) {
+        tc.clearRect(0, 0, TW, TH);
+        tc.fillStyle = "#000";
+        tc.fillRect(0, 0, TW, TH);
+        tc.fillStyle = "#fff";
+        tc.textAlign = "center";
+        tc.textBaseline = "middle";
+        const { cols, rows, cell, E, seed } = field;
+
+        /* 場の濃度 → グリフ。エネルギーのある場所にだけ文字が現れる */
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const i = r * cols + c,
+              e = E[i];
+            if (e < 0.1) continue;
+            const lvl = e < 0.28 ? 1 : e < 0.5 ? 2 : e < 0.8 ? 3 : 4;
+            const s = seed[i];
+            const g =
+              lvl === 1
+                ? pick(TIER1, s)
+                : lvl === 2
+                  ? pick(TIER2, s)
+                  : lvl === 3
+                    ? pick(TIER3, s)
+                    : pick(TIER4, s);
+            const shimmer = 0.82 + 0.18 * Math.sin(t * 2.2 + s * 0.37);
+            tc.globalAlpha = Math.min(1, e * 1.25) * shimmer;
+            const fs = cell * (0.52 + e * 0.3);
+            tc.font = `${lvl >= 3 ? 700 : 400} ${fs | 0}px ${FONT}`;
+            tc.fillText(g, c * cell + cell / 2, r * cell + cell / 2);
+          }
+        }
+        tc.globalAlpha = 1;
+
+        /* 結晶化した構造体の描画: 点が順に現れて成長し、崩壊時はグリフ単位で脱落 */
+        for (const w of words) {
+          w.age += dt;
+          const grow = Math.min(1, w.age / 0.45);
+          const remain = w.life - w.age;
+          const fadeOut = Math.min(1, Math.max(0, remain / 0.5));
+          const pts = structPath(w);
+          const vis = Math.max(1, Math.round(pts.length * grow));
+          const gs = Math.max(10, w.size * 0.3);
+          tc.save();
+          tc.translate(w.x, w.y);
+          for (let k = 0; k < vis; k++) {
+            let ch = pick(SGLYPH, w.sd + k * 7);
+            if (
+              remain < 0.8 &&
+              ((w.sd * 31 + k * 17 + ((t * 8) | 0)) % 97) / 97 < ((0.8 - remain) / 0.8) * 1.2
+            )
+              ch = Math.random() < 0.45 ? "" : pick(TIER1, w.sd + k + ((t * 9) | 0));
+            if (!ch) continue;
+            const pulse = 1 + Math.sin(t * 5 + k * 0.8) * 0.07 + A.beatPulse * 0.12;
+            tc.globalAlpha = fadeOut * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(k * 1.7 + w.sd)));
+            tc.font = `700 ${(gs * pulse) | 0}px ${FONT}`;
+            tc.fillText(ch, pts[k][0], pts[k][1]);
+          }
+          tc.restore();
+        }
+        tc.globalAlpha = 1;
+        words = words.filter((w) => w.age < w.life);
+      }
+
+      /* ================= GL(ポストプロセス: 行エネルギー比例の局所グリッチ) ================= */
+      const cv = document.getElementById("gl");
+      const gl = cv.getContext("webgl2", { antialias: false, alpha: false });
+      if (!gl) {
+        document.getElementById("err").style.display = "grid";
+        throw new Error("no webgl2");
+      }
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); // 幅1pxのrowEテクスチャ転送のため
+
+      function mkShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+        return s;
+      }
+      function mkProg(vs, fs) {
+        const p = gl.createProgram();
+        gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p;
+      }
+      const QUAD_VS = `#version 300 es
+layout(location=0) in vec2 a;
+out vec2 v_uv;
+void main(){v_uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+
+      const quadVAO = gl.createVertexArray();
+      gl.bindVertexArray(quadVAO);
+      const qb = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      const POST_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_text,u_prev,u_rowE;
+uniform float u_time,u_glitch,u_decay,u_beat;
+uniform vec3 u_tint;
+in vec2 v_uv; out vec4 o;
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+void main(){
+  vec2 uv=v_uv;
+  // 行エネルギーに比例した局所スライスグリッチ(静かな行は乱れない)
+  float rowE=texture(u_rowE,vec2(.5,uv.y)).r;
+  float row=floor(uv.y*30.);
+  float h1=hash(vec2(row,floor(u_time*18.)));
+  float h2=hash(vec2(row*1.7,floor(u_time*18.)+7.));
+  if(h2<rowE*u_glitch) uv.x+=(h1-.5)*(.04+rowE*.30)*u_glitch;
+  vec2 tuv=vec2(uv.x,1.-uv.y);
+  float off=(.0015+u_beat*.005)*(.3+rowE*1.4);   // RGBずれも局所
+  vec3 cur;
+  cur.r=texture(u_text,tuv+vec2(off,0.)).r;
+  cur.g=texture(u_text,tuv).g;
+  cur.b=texture(u_text,tuv-vec2(off,0.)).b;
+  cur*=u_tint;
+  vec2 puv=(uv-.5)*.997+.5;
+  vec3 prev=texture(u_prev,puv).rgb*u_decay;
+  vec3 col=max(cur,prev);
+  col*=.92+.08*sin(uv.y*900.);
+  col+=vec3(hash(uv*vec2(640.,360.)+u_time))*rowE*u_glitch*.07;
+  vec2 d=v_uv-.5; col*=1.-dot(d,d)*.65;
+  o=vec4(col,1.);
+}`;
+
+      const COPY_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+in vec2 v_uv; out vec4 o;
+void main(){
+  vec3 c=texture(u_tex,v_uv).rgb;
+  o=vec4(pow(c,vec3(.92)),1.);
+}`;
+
+      const postProg = mkProg(QUAD_VS, POST_FS);
+      const copyProg = mkProg(QUAD_VS, COPY_FS);
+      const pU = {
+        text: gl.getUniformLocation(postProg, "u_text"),
+        prev: gl.getUniformLocation(postProg, "u_prev"),
+        rowE: gl.getUniformLocation(postProg, "u_rowE"),
+        time: gl.getUniformLocation(postProg, "u_time"),
+        glitch: gl.getUniformLocation(postProg, "u_glitch"),
+        decay: gl.getUniformLocation(postProg, "u_decay"),
+        beat: gl.getUniformLocation(postProg, "u_beat"),
+        tint: gl.getUniformLocation(postProg, "u_tint"),
+      };
+      const cU = { tex: gl.getUniformLocation(copyProg, "u_tex") };
+
+      let fbW = 0,
+        fbH = 0,
+        texA,
+        texB,
+        fboA,
+        fboB,
+        textTex,
+        rowTex;
+      const ROWN = 64;
+      const rowBuf = new Uint8Array(ROWN);
+      function mkTarget(w, h) {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        const f = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+        return { t, f };
+      }
+      function resize() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        cv.width = innerWidth * dpr;
+        cv.height = innerHeight * dpr;
+        fbW = Math.max(2, cv.width >> 1);
+        fbH = Math.max(2, cv.height >> 1);
+        TW = fbW;
+        TH = fbH;
+        txt.width = TW;
+        txt.height = TH;
+        const a = mkTarget(fbW, fbH),
+          b = mkTarget(fbW, fbH);
+        texA = a.t;
+        fboA = a.f;
+        texB = b.t;
+        fboB = b.f;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fboA);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fboB);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        textTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, textTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, TW, TH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        rowTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, rowTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, ROWN, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        field.init(TW, TH);
+        initWalkers();
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      /* ================= LOOP ================= */
+      const audio = new AudioEngine();
+      let lastT = performance.now() / 1000,
+        started = false,
+        noveltyFlash = 0,
+        lastNovWord = 0;
+      const tint = [1, 1, 1],
+        tintT = [1, 1, 1];
+      const hud = {
+        bpm: document.getElementById("hBpm"),
+        w: document.getElementById("hW"),
+        e: document.getElementById("hE"),
+        chg: document.getElementById("hChg"),
+      };
+
+      function spawnWord(x, y, size, life, A, t) {
+        // 「大きな何か」= 抽象構造体。形・回転・点数は生成、サイズは場のエネルギー由来
+        words.push({
+          x,
+          y,
+          size: size * 1.15,
+          life,
+          age: 0,
+          type: SHAPES[(Math.random() * SHAPES.length) | 0],
+          rot: Math.random() * Math.PI,
+          n: Math.min(30, Math.max(8, 8 + ((size / 9) | 0))),
+          sd: (Math.random() * 1000) | 0,
+        });
+        lastSpawn = t;
+      }
+
+      function frame() {
+        requestAnimationFrame(frame);
+        const t = performance.now() / 1000;
+        const dt = Math.min(0.05, t - lastT);
+        lastT = t;
+        audio.update(dt);
+        const A = audio;
+        const { cols, rows, cell } = field;
+
+        /* --- エネルギー注入(すべて局所イベント) --- */
+        if (A.running) {
+          // 帯域ウォーカー: ゆるい乱歩で動きつつ帯域エネルギーを注ぐ
+          for (const w of walkers) {
+            w.ang += (Math.random() - 0.5) * 2.2 * dt * 8;
+            const sp = (2.5 + A.change * 6) * dt * 6;
+            w.c += Math.cos(w.ang) * sp;
+            w.r += Math.sin(w.ang) * sp;
+            if (w.c < 1 || w.c > cols - 2)
+              ((w.ang = Math.PI - w.ang), (w.c = Math.max(1, Math.min(cols - 2, w.c))));
+            if (w.r < 1 || w.r > rows - 2)
+              ((w.ang = -w.ang), (w.r = Math.max(1, Math.min(rows - 2, w.r))));
+            const v = A[w.band];
+            if (v > 0.04) field.inject(w.c | 0, w.r | 0, v * w.gain * dt * 8, 1);
+          }
+          // ビート: 1〜3点にランダム注入(量はCHG比例)
+          if (A.beat) {
+            const n = 1 + ((A.change * 2.5) | 0);
+            for (let i = 0; i < n; i++)
+              field.inject(
+                (1 + Math.random() * (cols - 2)) | 0,
+                (1 + Math.random() * (rows - 2)) | 0,
+                0.55 + A.change * 0.8,
+                1 + ((A.change * 2) | 0),
+              );
+          }
+          // noveltyスパイク: 巨大構造体が最大エネルギー点に結晶化 + 周囲へ衝撃注入
+          if (A.novelty > 2.2 && t - lastNovWord > 4) {
+            const mx = field.maxCell();
+            spawnWord(
+              (mx.c + 0.5) * cell,
+              (mx.r + 0.5) * cell,
+              Math.min(TW * 0.16, TH * 0.22),
+              3.2,
+              A,
+              t,
+            );
+            for (let i = 0; i < 10; i++) {
+              const a = (i / 10) * 6.28;
+              field.inject((mx.c + Math.cos(a) * 5) | 0, (mx.r + Math.sin(a) * 5) | 0, 0.7, 1);
+            }
+            noveltyFlash = 1;
+            lastNovWord = t;
+            tintT[0] = 0.6 + Math.random() * 0.6;
+            tintT[1] = 0.6 + Math.random() * 0.6;
+            tintT[2] = 0.6 + Math.random() * 0.6;
+          }
+        }
+        noveltyFlash *= Math.exp(-dt * 4);
+        for (let i = 0; i < 3; i++) tint[i] += (tintT[i] - tint[i]) * (1 - Math.exp(-dt * 2));
+
+        /* --- 場の更新 + 通常の結晶化(極大点が閾値を超えたら、場を消費して構造体に) --- */
+        field.step(dt);
+        if (A.running && t - lastSpawn > 0.9 && words.length < 6) {
+          const mx = field.maxCell();
+          if (mx.v > 0.92) {
+            spawnWord(
+              (mx.c + 0.5) * cell,
+              (mx.r + 0.5) * cell,
+              18 + mx.v * 34 + A.change * 26,
+              2.2 + Math.random() * 1.8,
+              A,
+              t,
+            );
+            // 結晶化はエネルギーを消費する → 同じ場所で連発しない
+            for (let dr = -2; dr <= 2; dr++)
+              for (let dc = -2; dc <= 2; dc++) {
+                const cc = mx.c + dc,
+                  rr = mx.r + dr;
+                if (cc >= 0 && cc < cols && rr >= 0 && rr < rows)
+                  field.E[field.idx(cc, rr)] *= 0.25;
+              }
+          }
+        }
+
+        /* --- 描画 --- */
+        drawText(A, t, dt);
+        gl.bindTexture(gl.TEXTURE_2D, textTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, txt);
+
+        // 行エネルギーテクスチャ(グリッチの局所化に使う)
+        for (let k = 0; k < ROWN; k++) {
+          const r = Math.min(rows - 1, ((k / ROWN) * rows) | 0);
+          let s = 0;
+          for (let c = 0; c < cols; c++) s += field.E[field.idx(c, r)];
+          rowBuf[k] = Math.min(255, (s / cols) * 900);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, rowTex);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, ROWN, gl.RED, gl.UNSIGNED_BYTE, rowBuf);
+
+        const glitch = Math.min(1.3, 0.25 + A.beatPulse * A.change * 1.3 + noveltyFlash * 0.9);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fboB);
+        gl.viewport(0, 0, fbW, fbH);
+        gl.useProgram(postProg);
+        gl.bindVertexArray(quadVAO);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textTex);
+        gl.uniform1i(pU.text, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, texA);
+        gl.uniform1i(pU.prev, 1);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, rowTex);
+        gl.uniform1i(pU.rowE, 2);
+        gl.uniform1f(pU.time, t);
+        gl.uniform1f(pU.glitch, glitch);
+        gl.uniform1f(pU.decay, 0.8 + A.change * 0.1);
+        gl.uniform1f(pU.beat, A.beatPulse);
+        gl.uniform3fv(pU.tint, tint);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cv.width, cv.height);
+        gl.useProgram(copyProg);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texB);
+        gl.uniform1i(cU.tex, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        [texA, texB] = [texB, texA];
+        [fboA, fboB] = [fboB, fboA];
+
+        if ((frame.n = (frame.n || 0) + 1) % 6 === 0) {
+          hud.bpm.textContent = A.bpm || "--";
+          hud.w.textContent = words.length;
+          hud.e.textContent = field.avg().toFixed(2);
+          hud.chg.textContent = A.change.toFixed(2);
+        }
+      }
+
+      /* ================= UI ================= */
+      const overlay = document.getElementById("overlay"),
+        hudEl = document.getElementById("hud");
+      function begin() {
+        overlay.style.display = "none";
+        hudEl.classList.remove("hidden");
+        if (!started) {
+          started = true;
+          requestAnimationFrame(frame);
+        }
+      }
+      document.getElementById("bMic").onclick = async () => {
+        try {
+          await audio.initMic();
+          begin();
+        } catch (e) {
+          alert(
+            "マイクにアクセスできませんでした(プレビュー環境ではブロックされることがあります)。デモ音源をお試しください。",
+          );
+        }
+      };
+      document.getElementById("bDemo").onclick = () => {
+        audio.initDemo();
+        begin();
+      };
+      addEventListener("keydown", (e) => {
+        if (e.key === "r" || e.key === "R") {
+          field.E.fill(0);
+          words = [];
+        }
+        if (e.key === "f" || e.key === "F")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        if (e.key === "h" || e.key === "H") hudEl.classList.toggle("hidden");
+      });
+      let idleTimer;
+      addEventListener("mousemove", () => {
+        hudEl.classList.remove("hidden");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => hudEl.classList.add("hidden"), 3500);
+      });
+    </script>
+  </body>
+</html>

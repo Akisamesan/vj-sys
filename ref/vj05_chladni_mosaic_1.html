@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VJ 05 — CHLADNI MOSAIC</title>
+    <style>
+      :root {
+        --accent: #ffd75e;
+        --dim: rgba(255, 255, 255, 0.45);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+        color: #fff;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 10;
+        text-align: center;
+        padding: 24px;
+      }
+      #overlay h1 {
+        font-size: clamp(22px, 4vw, 40px);
+        font-weight: 700;
+        letter-spacing: 0.35em;
+      }
+      #overlay h1 span {
+        color: var(--accent);
+      }
+      #overlay p {
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.9;
+        max-width: 48em;
+      }
+      .btns {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        letter-spacing: 0.15em;
+        padding: 13px 26px;
+        cursor: pointer;
+        background: transparent;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        transition: 0.2s;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 5;
+        font-size: 11px;
+        line-height: 1.9;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        transition: opacity 0.6s;
+        mix-blend-mode: difference;
+      }
+      #hud .t {
+        color: var(--accent);
+        letter-spacing: 0.25em;
+        margin-bottom: 4px;
+      }
+      #hud .k {
+        color: var(--dim);
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: #000;
+        z-index: 20;
+        color: #f66;
+        font-size: 13px;
+        padding: 24px;
+        text-align: center;
+        line-height: 2;
+      }
+      .hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="t">05 CHLADNI MOSAIC</div>
+      <div>
+        <span class="k">BPM</span> <span id="hBpm">--</span> &nbsp;<span class="k">PLATES</span>
+        <span id="hN">0</span> &nbsp;<span class="k">CHG</span> <span id="hChg">0.00</span>
+      </div>
+      <div class="k">[S] relayout&nbsp; [F] fullscreen&nbsp; [H] hud</div>
+    </div>
+
+    <div id="overlay">
+      <h1>05 <span>CHLADNI</span> MOSAIC</h1>
+      <p>
+        画面をBSP分割した複数の振動板のモザイク。<b>各プレートが別の周波数帯を担当</b>し、<br />
+        帯域ごとの局所novelty・エネルギー・ピーク音程で独立に振動します。波紋はその瞬間<br />
+        最も動いた帯域のプレートにだけ落ち、帯域単体の急変でも局所的に発火。レイアウト自体も生成・再生成されます。<br /><br />
+        ※ マイクがブロックされる環境では「デモ音源」を使ってください。
+      </p>
+      <div class="btns">
+        <button id="bMic">マイク入力で開始</button>
+        <button id="bDemo">デモ音源で開始</button>
+      </div>
+    </div>
+
+    <div id="err"><div id="errMsg">WebGL2 を初期化できませんでした。</div></div>
+
+    <script>
+      "use strict";
+      /* ================= AUDIO ENGINE(共通) ================= */
+      class AudioEngine {
+        constructor() {
+          this.ctx = null;
+          this.an = null;
+          this.freq = null;
+          this.prevF = null;
+          this.running = false;
+          this.bass = 0;
+          this.mid = 0;
+          this.high = 0;
+          this.bassSlow = 0;
+          this.fluxF = 0;
+          this.fluxS = 1e-4;
+          this.novelty = 1;
+          this.change = 0.1;
+          this.centroid = 0.3;
+          this.beat = 0;
+          this.beatPulse = 0;
+          this.lastBeat = -1;
+          this.intervals = [];
+          this.bpm = 0;
+          this.beatCount = 0;
+        }
+        async initMic() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const st = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+          this._setup(this.ctx.createMediaStreamSource(st), false);
+        }
+        initDemo() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.demo = new DemoLoop(this.ctx);
+          this._setup(this.demo.out, true);
+          this.demo.start();
+        }
+        _setup(src, toDest) {
+          this.an = this.ctx.createAnalyser();
+          this.an.fftSize = 4096;
+          this.an.smoothingTimeConstant = 0.55;
+          src.connect(this.an);
+          if (toDest) this.an.connect(this.ctx.destination);
+          this.freq = new Uint8Array(this.an.frequencyBinCount);
+          this.prevF = new Uint8Array(this.an.frequencyBinCount);
+          this.running = true;
+        }
+        update(dt) {
+          if (!this.running) return;
+          this.prevF.set(this.freq);
+          this.an.getByteFrequencyData(this.freq);
+          const n = this.freq.length,
+            binHz = this.ctx.sampleRate / 2 / n;
+          const bTo = Math.max(3, Math.round(160 / binHz)),
+            mTo = Math.round(2200 / binHz);
+          let b = 0,
+            m = 0,
+            h = 0,
+            flux = 0;
+          for (let i = 1; i < n; i++) {
+            const v = this.freq[i] / 255;
+            if (i < bTo) b += v;
+            else if (i < mTo) m += v;
+            else h += v;
+            const d = (this.freq[i] - this.prevF[i]) / 255;
+            if (d > 0) flux += d;
+          }
+          b /= bTo;
+          m /= mTo - bTo;
+          h /= n - mTo;
+          flux /= n * 0.05;
+          const k = 1 - Math.exp(-dt * 12);
+          this.bass += (b - this.bass) * k;
+          this.mid += (m - this.mid) * k;
+          this.high += (h - this.high) * k;
+          this.fluxF += (flux - this.fluxF) * (1 - Math.exp(-dt * 8));
+          this.fluxS += (flux - this.fluxS) * (1 - Math.exp(-dt * 0.35));
+          this.novelty = this.fluxF / Math.max(this.fluxS, 1e-4);
+          this.change = Math.min(1, Math.max(0.06, (this.novelty - 0.8) * 0.8));
+          this.bassSlow += (b - this.bassSlow) * (1 - Math.exp(-dt * 1.2));
+          const t = this.ctx.currentTime;
+          this.beat = 0;
+          if (b > this.bassSlow * 1.32 + 0.04 && t - this.lastBeat > 0.27) {
+            const iv = t - this.lastBeat;
+            this.beat = 1;
+            this.beatPulse = 1;
+            this.lastBeat = t;
+            this.beatCount++;
+            if (iv > 0.27 && iv < 1.6) {
+              this.intervals.push(iv);
+              if (this.intervals.length > 10) this.intervals.shift();
+              const s = [...this.intervals].sort((a, c) => a - c);
+              this.bpm = Math.round(60 / s[s.length >> 1]);
+            }
+          }
+          this.beatPulse *= Math.exp(-dt * 5.5);
+        }
+      }
+      class DemoLoop {
+        constructor(ctx) {
+          this.ctx = ctx;
+          this.out = ctx.createGain();
+          this.out.gain.value = 0.9;
+          this.bpm = 126;
+          this.step = 0;
+          this.next = 0;
+          this.bar = 0;
+          this.section = 0;
+        }
+        start() {
+          this.next = this.ctx.currentTime + 0.1;
+          this.timer = setInterval(() => this._sched(), 25);
+        }
+        _sched() {
+          const spb = 60 / this.bpm / 4;
+          while (this.next < this.ctx.currentTime + 0.12) {
+            this._play(this.step % 16, this.next);
+            this.step++;
+            if (this.step % 16 === 0) {
+              this.bar++;
+              if (this.bar % 8 === 0) this.section = (this.section + 1) % 4;
+            }
+            this.next += spb;
+          }
+        }
+        _play(s, t) {
+          const sec = this.section;
+          if (sec !== 3 && s % 4 === 0) this.kick(t);
+          if (sec >= 1 && s % 2 === 1) this.hat(t, 0.12);
+          if (sec === 2 && s % 2 === 0) this.hat(t, 0.05);
+          if (sec === 2 && (s === 4 || s === 12)) this.clap(t);
+          const notes = [55, 55, 0, 55, 0, 55, 0, 82.4, 55, 0, 55, 55, 0, 65.4, 0, 49];
+          if (sec !== 3 && notes[s]) this.bass(t, notes[s], sec === 2 ? 1500 : 520);
+          const lead = [440, 0, 523.3, 0, 659.3, 0, 587.3, 0, 440, 0, 392, 0, 523.3, 0, 349.2, 0];
+          if (sec >= 1 && lead[s]) this.lead(t, lead[s]);
+          if (sec === 3 && s === 0) this.pad(t);
+        }
+        kick(t) {
+          const o = this.ctx.createOscillator(),
+            g = this.ctx.createGain();
+          o.frequency.setValueAtTime(160, t);
+          o.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+          g.gain.setValueAtTime(1, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          o.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.3);
+        }
+        _nbuf() {
+          if (!this._nb) {
+            const b = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+            const d = b.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            this._nb = b;
+          }
+          return this._nb;
+        }
+        hat(t, dec) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "highpass";
+          f.frequency.value = 7500;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.18, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + dec + 0.02);
+        }
+        clap(t) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "bandpass";
+          f.frequency.value = 1600;
+          f.Q.value = 1.2;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.45, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + 0.2);
+        }
+        bass(t, fq, cut) {
+          const o = this.ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.value = fq;
+          const f = this.ctx.createBiquadFilter();
+          f.type = "lowpass";
+          f.frequency.value = cut;
+          f.Q.value = 6;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.28, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
+          o.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.24);
+        }
+        lead(t, fq) {
+          const o = this.ctx.createOscillator();
+          o.type = "triangle";
+          o.frequency.value = fq;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.22, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+          o.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.32);
+        }
+        pad(t) {
+          [220, 277.2, 329.6].forEach((fq, i) => {
+            const o = this.ctx.createOscillator();
+            o.type = "sawtooth";
+            o.frequency.value = fq * (i === 1 ? 1.004 : 1);
+            const f = this.ctx.createBiquadFilter();
+            f.type = "lowpass";
+            f.frequency.setValueAtTime(380, t);
+            f.frequency.linearRampToValueAtTime(2300, t + 3.4);
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.12, t + 0.6);
+            g.gain.linearRampToValueAtTime(0, t + 3.7);
+            o.connect(f);
+            f.connect(g);
+            g.connect(this.out);
+            o.start(t);
+            o.stop(t + 3.8);
+          });
+        }
+      }
+
+      /* ================= GL ================= */
+      const cv = document.getElementById("gl");
+      const gl = cv.getContext("webgl2", { antialias: false, alpha: false });
+      if (!gl) {
+        document.getElementById("err").style.display = "grid";
+        throw new Error("no webgl2");
+      }
+
+      function mkShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+        return s;
+      }
+      function mkProg(vs, fs) {
+        const p = gl.createProgram();
+        gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p;
+      }
+
+      const QUAD_VS = `#version 300 es
+layout(location=0) in vec2 a;
+out vec2 v_uv;
+void main(){v_uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+
+      const quadVAO = gl.createVertexArray();
+      gl.bindVertexArray(quadVAO);
+      const qb = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      const MAXP = 8;
+      const MOSAIC_FS = `#version 300 es
+precision highp float;
+#define MAXP ${MAXP}
+uniform float u_time,u_aspect;
+uniform int u_count;
+uniform vec4 u_rect[MAXP];
+uniform float u_m[MAXP],u_n[MAXP],u_amp[MAXP],u_rotA[MAXP],
+              u_ripT[MAXP],u_ripA[MAXP],u_palSh[MAXP],u_type[MAXP],
+              u_birth[MAXP],u_shp[MAXP];
+uniform vec3 u_palC,u_palD;
+in vec2 v_uv; out vec4 o;
+#define PI 3.14159265
+vec3 pal(float t){return .5+.5*cos(6.28318*(u_palC*t+u_palD));}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float chSq(vec2 p,float m,float n){
+  return cos(n*PI*p.x)*cos(m*PI*p.y)-cos(m*PI*p.x)*cos(n*PI*p.y);
+}
+float chCirc(vec2 p,float m,float n){
+  float r=length(p)*1.6,th=atan(p.y,p.x);
+  return cos(m*th)*cos(n*PI*r)*exp(-r*.15);
+}
+void main(){
+  vec3 col=vec3(0.);
+  for(int i=0;i<MAXP;i++){
+    if(i>=u_count)break;
+    vec4 R=u_rect[i];
+    if(v_uv.x<R.x||v_uv.x>=R.x+R.z||v_uv.y<R.y||v_uv.y>=R.y+R.w)continue;
+    vec2 l=(v_uv-R.xy)/R.zw;             // プレート内 0..1
+    vec2 p=(l-.5)*2.;
+    p.x*=(R.z*u_aspect)/R.w;             // 正方形補正
+    p=rot(u_rotA[i])*p;
+    float f;
+    if(u_type[i]<.5) f=chSq(p*.5+.5,u_m[i],u_n[i]);
+    else             f=chCirc(p,floor(u_m[i]+.5),u_n[i]*.5);
+    // このプレート固有の波紋(担当帯域が動いた時だけ落ちる)
+    float r=length(p);
+    f+=sin(r*24.-u_ripT[i]*16.)*exp(-u_ripT[i]*3.2)*exp(-r*1.2)*u_ripA[i]*1.6;
+    float line=exp(-abs(f)*u_shp[i])*u_amp[i];
+    float glow=exp(-abs(f)*u_shp[i]*.22)*.32*u_amp[i];
+    float grain=.65+.35*hash(p*520.+floor(u_time*24.)*.37+float(i));
+    float born=clamp((u_time-u_birth[i])*2.8,0.,1.);
+    vec3 c=pal(.12+abs(f)*.16+u_palSh[i])*(line*grain+glow);
+    c+=pal(f*.25+.5+u_palSh[i])*.04;     // 背景の振動場をごく薄く
+    // プレート境界線
+    float ex=min(l.x,1.-l.x)*R.z*u_aspect;
+    float ey=min(l.y,1.-l.y)*R.w;
+    c+=pal(.6+u_palSh[i])*smoothstep(.006,.0015,min(ex,ey))*.22;
+    col=c*born;
+    break;
+  }
+  vec2 d=v_uv-.5; col*=1.-dot(d,d)*.55;
+  o=vec4(pow(col,vec3(.9)),1.);
+}`;
+
+      const prog = mkProg(QUAD_VS, MOSAIC_FS);
+      const U = (n) => gl.getUniformLocation(prog, n);
+      const uni = {
+        time: U("u_time"),
+        aspect: U("u_aspect"),
+        count: U("u_count"),
+        rect: U("u_rect"),
+        m: U("u_m"),
+        n: U("u_n"),
+        amp: U("u_amp"),
+        rotA: U("u_rotA"),
+        ripT: U("u_ripT"),
+        ripA: U("u_ripA"),
+        palSh: U("u_palSh"),
+        type: U("u_type"),
+        birth: U("u_birth"),
+        shp: U("u_shp"),
+        palC: U("u_palC"),
+        palD: U("u_palD"),
+      };
+
+      function resize() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        cv.width = innerWidth * dpr;
+        cv.height = innerHeight * dpr;
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      /* ================= 生成レイアウト(BSP分割) + プレート状態 ================= */
+      let plates = [],
+        layoutTime = 0,
+        lastLayoutBeat = 0;
+      function genLayout(now) {
+        let rects = [{ x: 0, y: 0, w: 1, h: 1 }];
+        const splits = 3 + ((Math.random() * 3) | 0); // 4〜6+枚
+        for (let s = 0; s < splits && rects.length < MAXP; s++) {
+          rects.sort((a, b) => b.w * b.h - a.w * a.h);
+          const r = rects.shift();
+          const t = 0.34 + Math.random() * 0.32;
+          if (r.w >= r.h * 1.1)
+            rects.push(
+              { x: r.x, y: r.y, w: r.w * t, h: r.h },
+              { x: r.x + r.w * t, y: r.y, w: r.w * (1 - t), h: r.h },
+            );
+          else
+            rects.push(
+              { x: r.x, y: r.y, w: r.w, h: r.h * t },
+              { x: r.x, y: r.y + r.h * t, w: r.w, h: r.h * (1 - t) },
+            );
+        }
+        // 帯域割当をシャッフル(大きいプレート=低域とは限らない)
+        const order = rects.map((_, i) => i);
+        for (let i = order.length - 1; i > 0; i--) {
+          const j = (Math.random() * (i + 1)) | 0;
+          [order[i], order[j]] = [order[j], order[i]];
+        }
+        plates = rects.map((r, i) => ({
+          rect: r,
+          band: order[i],
+          type: Math.random() < 0.4 ? 1 : 0,
+          palSh: Math.random(),
+          rotSpd: (Math.random() - 0.5) * 0.3,
+          rot: Math.random() * 6.28,
+          sharp: 16 + Math.random() * 30,
+          m: 3 + Math.random() * 3,
+          n: 5 + Math.random() * 3,
+          amp: 0,
+          ripT: 9,
+          ripA: 0,
+          lastLocal: 0,
+          birth: now + i * 0.13, // 1枚ずつ時間差で生まれる
+          // 帯域解析の状態
+          e: 0,
+          ff: 0,
+          fs: 1e-4,
+          chg: 0.1,
+          peak: 220,
+        }));
+        layoutTime = now;
+      }
+
+      /* uniform 転送用バッファ */
+      const bRect = new Float32Array(MAXP * 4);
+      const bM = new Float32Array(MAXP),
+        bN = new Float32Array(MAXP),
+        bAmp = new Float32Array(MAXP),
+        bRot = new Float32Array(MAXP),
+        bRipT = new Float32Array(MAXP),
+        bRipA = new Float32Array(MAXP),
+        bPal = new Float32Array(MAXP),
+        bType = new Float32Array(MAXP),
+        bBirth = new Float32Array(MAXP),
+        bShp = new Float32Array(MAXP);
+
+      /* ================= LOOP ================= */
+      const audio = new AudioEngine();
+      let lastT = performance.now() / 1000,
+        started = false,
+        lastRelayout = 0;
+      const hud = {
+        bpm: document.getElementById("hBpm"),
+        n: document.getElementById("hN"),
+        chg: document.getElementById("hChg"),
+      };
+
+      function bandUpdate(A, dt, t) {
+        // プレート数で 60Hz〜5.2kHz を対数分割し、各プレートが自分の帯域だけを解析する
+        const N = plates.length;
+        if (!N || !A.running) return;
+        const nb = A.freq.length,
+          binHz = A.ctx.sampleRate / 2 / nb;
+        let maxFlux = -1,
+          maxIdx = 0;
+        for (let k = 0; k < N; k++) {
+          const P = plates[k];
+          const f0 = 60 * Math.pow(5200 / 60, P.band / N),
+            f1 = 60 * Math.pow(5200 / 60, (P.band + 1) / N);
+          const i0 = Math.max(1, Math.round(f0 / binHz)),
+            i1 = Math.min(nb - 1, Math.round(f1 / binHz));
+          let e = 0,
+            fl = 0,
+            pk = i0,
+            pa = 0;
+          for (let i = i0; i < i1; i++) {
+            const v = A.freq[i] / 255;
+            e += v;
+            const d = (A.freq[i] - A.prevF[i]) / 255;
+            if (d > 0) fl += d;
+            if (A.freq[i] > pa) {
+              pa = A.freq[i];
+              pk = i;
+            }
+          }
+          const cnt = Math.max(1, i1 - i0);
+          e /= cnt;
+          fl /= cnt * 0.05;
+          P.e += (e - P.e) * (1 - Math.exp(-dt * 10));
+          P.ff += (fl - P.ff) * (1 - Math.exp(-dt * 8));
+          P.fs += (fl - P.fs) * (1 - Math.exp(-dt * 0.35));
+          P.chg = Math.min(1, Math.max(0.05, (P.ff / Math.max(P.fs, 1e-4) - 0.8) * 0.8));
+          if (pa > 50) P.peak += (pk * binHz - P.peak) * (1 - Math.exp(-dt * 5));
+          if (P.ff > maxFlux) {
+            maxFlux = P.ff;
+            maxIdx = k;
+          }
+          // 局所トリガ: ビートと無関係に、この帯域単体の急変で小波紋
+          if (P.ff > P.fs * 2.2 && t - P.lastLocal > 0.6) {
+            P.ripT = 0;
+            P.ripA = 0.25 + P.chg * 0.5;
+            P.lastLocal = t;
+          }
+          // ピッチ → モード数(プレートごとに追従速度も局所CHG依存)
+          const mT = 1.2 + Math.min(8, Math.max(0, Math.log2(Math.max(60, P.peak) / 65))) * 1.1;
+          const pk2 = 1 - Math.exp(-dt * (2 + P.chg * 6));
+          P.m += (mT - P.m) * pk2;
+          P.n += (mT + 1 + (P.band / N) * 2.5 - P.n) * pk2;
+          P.rot += P.rotSpd * P.chg * dt * 6;
+          const ampT = Math.min(1.5, 0.12 + P.e * 2.6);
+          P.amp += (ampT - P.amp) * (1 - Math.exp(-dt * 7));
+          P.ripT += dt;
+        }
+        // グローバルビート: 最も動いた帯域のプレートにだけ大波紋
+        if (A.beat) {
+          const P = plates[maxIdx];
+          P.ripT = 0;
+          P.ripA = 0.5 + P.chg * 0.9;
+        }
+      }
+
+      function frame() {
+        requestAnimationFrame(frame);
+        const t = performance.now() / 1000;
+        const dt = Math.min(0.05, t - lastT);
+        lastT = t;
+        audio.update(dt);
+        const A = audio;
+
+        if (!plates.length) genLayout(t);
+        // レイアウト再生成: 大novelty or 32拍ごと
+        if (
+          A.running &&
+          ((A.novelty > 2.4 && t - lastRelayout > 8) || A.beatCount - lastLayoutBeat >= 32)
+        ) {
+          genLayout(t);
+          lastRelayout = t;
+          lastLayoutBeat = A.beatCount;
+        }
+        bandUpdate(A, dt, t);
+
+        const N = plates.length;
+        for (let i = 0; i < N; i++) {
+          const P = plates[i],
+            R = P.rect;
+          bRect[i * 4] = R.x;
+          bRect[i * 4 + 1] = R.y;
+          bRect[i * 4 + 2] = R.w;
+          bRect[i * 4 + 3] = R.h;
+          bM[i] = P.m;
+          bN[i] = P.n;
+          bAmp[i] = P.amp;
+          bRot[i] = P.rot;
+          bRipT[i] = P.ripT;
+          bRipA[i] = P.ripA;
+          bPal[i] = P.palSh;
+          bType[i] = P.type;
+          bBirth[i] = P.birth;
+          bShp[i] = P.sharp;
+        }
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cv.width, cv.height);
+        gl.useProgram(prog);
+        gl.bindVertexArray(quadVAO);
+        gl.uniform1f(uni.time, t);
+        gl.uniform1f(uni.aspect, cv.width / cv.height);
+        gl.uniform1i(uni.count, N);
+        gl.uniform4fv(uni.rect, bRect);
+        gl.uniform1fv(uni.m, bM);
+        gl.uniform1fv(uni.n, bN);
+        gl.uniform1fv(uni.amp, bAmp);
+        gl.uniform1fv(uni.rotA, bRot);
+        gl.uniform1fv(uni.ripT, bRipT);
+        gl.uniform1fv(uni.ripA, bRipA);
+        gl.uniform1fv(uni.palSh, bPal);
+        gl.uniform1fv(uni.type, bType);
+        gl.uniform1fv(uni.birth, bBirth);
+        gl.uniform1fv(uni.shp, bShp);
+        gl.uniform3fv(uni.palC, [1, 0.85, 0.6]);
+        gl.uniform3fv(uni.palD, [0.05, 0.25, 0.5]);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        if ((frame.n = (frame.n || 0) + 1) % 6 === 0) {
+          hud.bpm.textContent = A.bpm || "--";
+          hud.n.textContent = N;
+          hud.chg.textContent = A.change.toFixed(2);
+        }
+      }
+
+      /* ================= UI ================= */
+      const overlay = document.getElementById("overlay"),
+        hudEl = document.getElementById("hud");
+      function begin() {
+        overlay.style.display = "none";
+        hudEl.classList.remove("hidden");
+        if (!started) {
+          started = true;
+          requestAnimationFrame(frame);
+        }
+      }
+      document.getElementById("bMic").onclick = async () => {
+        try {
+          await audio.initMic();
+          begin();
+        } catch (e) {
+          alert(
+            "マイクにアクセスできませんでした(プレビュー環境ではブロックされることがあります)。デモ音源をお試しください。",
+          );
+        }
+      };
+      document.getElementById("bDemo").onclick = () => {
+        audio.initDemo();
+        begin();
+      };
+      addEventListener("keydown", (e) => {
+        if (e.key === "s" || e.key === "S") genLayout(performance.now() / 1000);
+        if (e.key === "f" || e.key === "F")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        if (e.key === "h" || e.key === "H") hudEl.classList.toggle("hidden");
+      });
+      let idleTimer;
+      addEventListener("mousemove", () => {
+        hudEl.classList.remove("hidden");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => hudEl.classList.add("hidden"), 3500);
+      });
+    </script>
+  </body>
+</html>

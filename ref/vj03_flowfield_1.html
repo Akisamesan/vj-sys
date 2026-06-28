@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VJ 03 — FLOWFIELD</title>
+    <style>
+      :root {
+        --accent: #ff7a45;
+        --dim: rgba(255, 255, 255, 0.45);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+        color: #fff;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 10;
+        text-align: center;
+        padding: 24px;
+      }
+      #overlay h1 {
+        font-size: clamp(22px, 4vw, 40px);
+        font-weight: 700;
+        letter-spacing: 0.35em;
+      }
+      #overlay h1 span {
+        color: var(--accent);
+      }
+      #overlay p {
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.9;
+        max-width: 46em;
+      }
+      .btns {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        letter-spacing: 0.15em;
+        padding: 13px 26px;
+        cursor: pointer;
+        background: transparent;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        transition: 0.2s;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 5;
+        font-size: 11px;
+        line-height: 1.9;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        transition: opacity 0.6s;
+        mix-blend-mode: difference;
+      }
+      #hud .t {
+        color: var(--accent);
+        letter-spacing: 0.25em;
+        margin-bottom: 4px;
+      }
+      #hud .k {
+        color: var(--dim);
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: #000;
+        z-index: 20;
+        color: #f66;
+        font-size: 13px;
+        padding: 24px;
+        text-align: center;
+        line-height: 2;
+      }
+      .hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="t">03 FLOWFIELD</div>
+      <div>
+        <span class="k">BPM</span> <span id="hBpm">--</span> &nbsp;<span class="k">FIELD</span>
+        <span id="hMode">0</span> &nbsp;<span class="k">PTS</span> 262144
+      </div>
+      <div><span class="k">CHG</span> <span id="hChg">0.00</span></div>
+      <div class="k">[S] field&nbsp; [F] fullscreen&nbsp; [H] hud</div>
+    </div>
+
+    <div id="overlay">
+      <h1>03 <span>FLOWFIELD</span></h1>
+      <p>
+        カールノイズ場を流れる26万パーティクル。低域が流速、スペクトル重心が色相を駆動し、<br />
+        キックで衝撃波がフィールドを走ります。noveltyスパイクでフィールド構造が再構成されます。<br /><br />
+        ※ マイクがブロックされる環境では「デモ音源」を使ってください。
+      </p>
+      <div class="btns">
+        <button id="bMic">マイク入力で開始</button>
+        <button id="bDemo">デモ音源で開始</button>
+      </div>
+    </div>
+
+    <div id="err"><div id="errMsg">WebGL2 を初期化できませんでした。</div></div>
+
+    <script>
+      "use strict";
+      /* ================= AUDIO ENGINE(共通) ================= */
+      class AudioEngine {
+        constructor() {
+          this.ctx = null;
+          this.an = null;
+          this.freq = null;
+          this.prevF = null;
+          this.running = false;
+          this.bass = 0;
+          this.mid = 0;
+          this.high = 0;
+          this.bassSlow = 0;
+          this.fluxF = 0;
+          this.fluxS = 1e-4;
+          this.novelty = 1;
+          this.change = 0.1;
+          this.centroid = 0.3;
+          this.beat = 0;
+          this.beatPulse = 0;
+          this.lastBeat = -1;
+          this.intervals = [];
+          this.bpm = 0;
+        }
+        async initMic() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const st = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+          this._setup(this.ctx.createMediaStreamSource(st), false);
+        }
+        initDemo() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.demo = new DemoLoop(this.ctx);
+          this._setup(this.demo.out, true);
+          this.demo.start();
+        }
+        _setup(src, toDest) {
+          this.an = this.ctx.createAnalyser();
+          this.an.fftSize = 2048;
+          this.an.smoothingTimeConstant = 0.5;
+          src.connect(this.an);
+          if (toDest) this.an.connect(this.ctx.destination);
+          this.freq = new Uint8Array(this.an.frequencyBinCount);
+          this.prevF = new Uint8Array(this.an.frequencyBinCount);
+          this.running = true;
+        }
+        update(dt) {
+          if (!this.running) return;
+          this.prevF.set(this.freq);
+          this.an.getByteFrequencyData(this.freq);
+          const n = this.freq.length,
+            binHz = this.ctx.sampleRate / 2 / n;
+          const bTo = Math.max(3, Math.round(160 / binHz)),
+            mTo = Math.round(2200 / binHz);
+          let b = 0,
+            m = 0,
+            h = 0,
+            flux = 0,
+            cw = 0,
+            cs = 0;
+          for (let i = 1; i < n; i++) {
+            const v = this.freq[i] / 255;
+            if (i < bTo) b += v;
+            else if (i < mTo) m += v;
+            else h += v;
+            const d = (this.freq[i] - this.prevF[i]) / 255;
+            if (d > 0) flux += d;
+            cw += v * i;
+            cs += v;
+          }
+          b /= bTo;
+          m /= mTo - bTo;
+          h /= n - mTo;
+          flux /= n * 0.05;
+          const k = 1 - Math.exp(-dt * 12);
+          this.bass += (b - this.bass) * k;
+          this.mid += (m - this.mid) * k;
+          this.high += (h - this.high) * k;
+          this.centroid += ((cs > 1e-3 ? cw / cs / n : 0.3) - this.centroid) * k * 0.5;
+          this.fluxF += (flux - this.fluxF) * (1 - Math.exp(-dt * 8));
+          this.fluxS += (flux - this.fluxS) * (1 - Math.exp(-dt * 0.35));
+          this.novelty = this.fluxF / Math.max(this.fluxS, 1e-4);
+          this.change = Math.min(1, Math.max(0.06, (this.novelty - 0.8) * 0.8));
+          this.bassSlow += (b - this.bassSlow) * (1 - Math.exp(-dt * 1.2));
+          const t = this.ctx.currentTime;
+          this.beat = 0;
+          if (b > this.bassSlow * 1.32 + 0.04 && t - this.lastBeat > 0.27) {
+            const iv = t - this.lastBeat;
+            this.beat = 1;
+            this.beatPulse = 1;
+            this.lastBeat = t;
+            if (iv > 0.27 && iv < 1.6) {
+              this.intervals.push(iv);
+              if (this.intervals.length > 10) this.intervals.shift();
+              const s = [...this.intervals].sort((a, c) => a - c);
+              this.bpm = Math.round(60 / s[s.length >> 1]);
+            }
+          }
+          this.beatPulse *= Math.exp(-dt * 5.5);
+        }
+      }
+      class DemoLoop {
+        constructor(ctx) {
+          this.ctx = ctx;
+          this.out = ctx.createGain();
+          this.out.gain.value = 0.9;
+          this.bpm = 126;
+          this.step = 0;
+          this.next = 0;
+          this.bar = 0;
+          this.section = 0;
+        }
+        start() {
+          this.next = this.ctx.currentTime + 0.1;
+          this.timer = setInterval(() => this._sched(), 25);
+        }
+        _sched() {
+          const spb = 60 / this.bpm / 4;
+          while (this.next < this.ctx.currentTime + 0.12) {
+            this._play(this.step % 16, this.next);
+            this.step++;
+            if (this.step % 16 === 0) {
+              this.bar++;
+              if (this.bar % 8 === 0) this.section = (this.section + 1) % 4;
+            }
+            this.next += spb;
+          }
+        }
+        _play(s, t) {
+          const sec = this.section;
+          if (sec !== 3 && s % 4 === 0) this.kick(t);
+          if (sec >= 1 && s % 2 === 1) this.hat(t, 0.12);
+          if (sec === 2 && s % 2 === 0) this.hat(t, 0.05);
+          if (sec === 2 && (s === 4 || s === 12)) this.clap(t);
+          const notes = [55, 55, 0, 55, 0, 55, 0, 82.4, 55, 0, 55, 55, 0, 65.4, 0, 49];
+          if (sec !== 3 && notes[s]) this.bass(t, notes[s], sec === 2 ? 1500 : 520);
+          if (sec === 3 && s === 0) this.pad(t);
+        }
+        kick(t) {
+          const o = this.ctx.createOscillator(),
+            g = this.ctx.createGain();
+          o.frequency.setValueAtTime(160, t);
+          o.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+          g.gain.setValueAtTime(1, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          o.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.3);
+        }
+        _nbuf() {
+          if (!this._nb) {
+            const b = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+            const d = b.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            this._nb = b;
+          }
+          return this._nb;
+        }
+        hat(t, dec) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "highpass";
+          f.frequency.value = 7500;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.22, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + dec + 0.02);
+        }
+        clap(t) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "bandpass";
+          f.frequency.value = 1600;
+          f.Q.value = 1.2;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.5, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + 0.2);
+        }
+        bass(t, fq, cut) {
+          const o = this.ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.value = fq;
+          const f = this.ctx.createBiquadFilter();
+          f.type = "lowpass";
+          f.frequency.value = cut;
+          f.Q.value = 6;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.3, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
+          o.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.24);
+        }
+        pad(t) {
+          [220, 277.2, 329.6].forEach((fq, i) => {
+            const o = this.ctx.createOscillator();
+            o.type = "sawtooth";
+            o.frequency.value = fq * (i === 1 ? 1.004 : 1);
+            const f = this.ctx.createBiquadFilter();
+            f.type = "lowpass";
+            f.frequency.setValueAtTime(380, t);
+            f.frequency.linearRampToValueAtTime(2300, t + 3.4);
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.12, t + 0.6);
+            g.gain.linearRampToValueAtTime(0, t + 3.7);
+            o.connect(f);
+            f.connect(g);
+            g.connect(this.out);
+            o.start(t);
+            o.stop(t + 3.8);
+          });
+        }
+      }
+
+      /* ================= GL ================= */
+      const cv = document.getElementById("gl");
+      const gl = cv.getContext("webgl2", { antialias: false, alpha: false });
+      function fail(msg) {
+        const e = document.getElementById("err");
+        document.getElementById("errMsg").textContent = msg;
+        e.style.display = "grid";
+        throw new Error(msg);
+      }
+      if (!gl) fail("WebGL2 を初期化できませんでした。");
+      if (!gl.getExtension("EXT_color_buffer_float"))
+        fail(
+          "float テクスチャ非対応のため動作できません(EXT_color_buffer_float)。デスクトップブラウザでお試しください。",
+        );
+      gl.getExtension("OES_texture_float_linear");
+
+      function mkShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+        return s;
+      }
+      function mkProg(vs, fs) {
+        const p = gl.createProgram();
+        gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p;
+      }
+      function uniLoc(p) {
+        const m = {};
+        const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+        for (let i = 0; i < n; i++) {
+          const u = gl.getActiveUniform(p, i);
+          m[u.name] = gl.getUniformLocation(p, u.name);
+        }
+        return m;
+      }
+
+      const QUAD_VS = `#version 300 es
+layout(location=0) in vec2 a;
+out vec2 v_uv;
+void main(){v_uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+
+      const quadVAO = gl.createVertexArray();
+      gl.bindVertexArray(quadVAO);
+      const qb = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      const emptyVAO = gl.createVertexArray();
+
+      const PT = 512; // 512x512 = 262,144 particles
+
+      function mkTex(w, h, internal, format, type, filter, wrap) {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, format, type, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+        return t;
+      }
+      function mkFbo(tex) {
+        const f = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
+          fail("framebuffer incomplete");
+        return f;
+      }
+
+      let posA = mkTex(PT, PT, gl.RGBA32F, gl.RGBA, gl.FLOAT, gl.NEAREST, gl.CLAMP_TO_EDGE);
+      let posB = mkTex(PT, PT, gl.RGBA32F, gl.RGBA, gl.FLOAT, gl.NEAREST, gl.CLAMP_TO_EDGE);
+      let posFA = mkFbo(posA),
+        posFB = mkFbo(posB);
+      let accumA = null,
+        accumB = null,
+        accFA = null,
+        accFB = null,
+        accW = 0,
+        accH = 0;
+
+      function seedParticles() {
+        const d = new Float32Array(PT * PT * 4);
+        for (let i = 0; i < PT * PT; i++) {
+          d[i * 4] = Math.random();
+          d[i * 4 + 1] = Math.random();
+          d[i * 4 + 2] = Math.random(); // life
+          d[i * 4 + 3] = Math.random(); // seed
+        }
+        gl.bindTexture(gl.TEXTURE_2D, posA);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PT, PT, gl.RGBA, gl.FLOAT, d);
+      }
+      function resize() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        cv.width = innerWidth * dpr;
+        cv.height = innerHeight * dpr;
+        accW = Math.max(2, cv.width >> 1);
+        accH = Math.max(2, cv.height >> 1);
+        accumA = mkTex(accW, accH, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR, gl.CLAMP_TO_EDGE);
+        accFA = mkFbo(accumA);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+      addEventListener("resize", resize);
+      resize();
+      seedParticles();
+
+      /* ---- shaders ---- */
+      const UPDATE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_pos;
+uniform float u_dt,u_time,u_scale,u_speed,u_flux,u_shock,u_warp;
+uniform vec2 u_shockC;
+in vec2 v_uv; out vec4 o;
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vnoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+float fbm(vec2 p){
+  float v=0.,a=.55;
+  for(int i=0;i<3;i++){v+=vnoise(p)*a;p=p*2.13+vec2(11.7,7.3);a*=.5;}
+  return v;
+}
+vec2 curl(vec2 p){
+  float e=.07;
+  float n1=fbm(p+vec2(0.,e)), n2=fbm(p-vec2(0.,e));
+  float n3=fbm(p+vec2(e,0.)), n4=fbm(p-vec2(e,0.));
+  return vec2(n1-n2,-(n3-n4))/(2.*e);
+}
+void main(){
+  vec4 d=texture(u_pos,v_uv);
+  vec2 p=d.xy; float life=d.z, sd=d.w;
+  // ドメインワープ + カールノイズ場
+  vec2 q=p*u_scale+vec2(u_time*.10,sd*.0);
+  q+=u_warp*vec2(fbm(q+u_time*.05),fbm(q+7.31));
+  vec2 v=curl(q)*u_speed;
+  // キック衝撃波(中心から放射状、距離減衰)
+  vec2 toC=p-u_shockC; float dist=length(toC)+1e-4;
+  v+=(toC/dist)*u_shock*exp(-dist*3.2)*.9;
+  p+=v*u_dt;
+  life-=u_dt*(.10+u_flux*.25);
+  float r1=hash(v_uv*13.7+fract(u_time*.917));
+  float r2=hash(v_uv*31.1+fract(u_time*.371));
+  if(life<=0.||p.x<-.08||p.x>1.08||p.y<-.08||p.y>1.08){
+    p=vec2(r1,r2); life=.4+r1*.8;
+  }
+  o=vec4(p,life,sd);
+}`;
+
+      const POINT_VS = `#version 300 es
+uniform sampler2D u_pos;
+uniform float u_ptSize;
+out float v_life; out float v_sd;
+void main(){
+  ivec2 ts=textureSize(u_pos,0);
+  ivec2 c=ivec2(gl_VertexID%ts.x, gl_VertexID/ts.x);
+  vec4 d=texelFetch(u_pos,c,0);
+  v_life=d.z; v_sd=d.w;
+  gl_Position=vec4(d.xy*2.-1.,0.,1.);
+  gl_PointSize=u_ptSize;
+}`;
+      const POINT_FS = `#version 300 es
+precision highp float;
+uniform float u_hue,u_bright;
+uniform vec3 u_palC,u_palD;
+in float v_life; in float v_sd; out vec4 o;
+vec3 pal(float t){return .5+.5*cos(6.28318*(u_palC*t+u_palD));}
+void main(){
+  float fade=smoothstep(0.,.25,v_life)*smoothstep(1.4,.9,v_life);
+  vec3 c=pal(u_hue+v_sd*.22)*fade*u_bright;
+  o=vec4(c,1.);
+}`;
+
+      const FADE_FS = `#version 300 es
+precision highp float;
+uniform float u_fade;
+in vec2 v_uv; out vec4 o;
+void main(){ o=vec4(0.,0.,0.,u_fade); }`;
+
+      const DISPLAY_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+uniform float u_expo,u_beat;
+in vec2 v_uv; out vec4 o;
+void main(){
+  vec3 c=texture(u_tex,v_uv).rgb;
+  c=1.-exp(-c*u_expo);                 // tonemap
+  vec2 d=v_uv-.5;
+  c*=1.-dot(d,d)*.8;
+  c+=c*u_beat*.15;
+  o=vec4(pow(c,vec3(.92)),1.);
+}`;
+
+      const updateProg = mkProg(QUAD_VS, UPDATE_FS);
+      const pointProg = mkProg(POINT_VS, POINT_FS);
+      const fadeProg = mkProg(QUAD_VS, FADE_FS);
+      const displayProg = mkProg(QUAD_VS, DISPLAY_FS);
+      const uU = uniLoc(updateProg),
+        pU = uniLoc(pointProg),
+        fU = uniLoc(fadeProg),
+        dU = uniLoc(displayProg);
+
+      /* ================= FIELD MODES(noveltyで再構成) ================= */
+      const MODES = [
+        {
+          scale: 2.2,
+          warp: 0.0,
+          speed: 0.18,
+          fade: 0.055,
+          palC: [1, 0.8, 0.6],
+          palD: [0.05, 0.35, 0.6],
+        }, // 大きな渦
+        { scale: 6.5, warp: 0.6, speed: 0.13, fade: 0.1, palC: [1, 1, 1], palD: [0.0, 0.1, 0.2] }, // 乱流の筋
+        {
+          scale: 1.2,
+          warp: 1.4,
+          speed: 0.24,
+          fade: 0.035,
+          palC: [2, 1, 0],
+          palD: [0.5, 0.25, 0.2],
+        }, // ワープした大河
+        {
+          scale: 4.0,
+          warp: 0.25,
+          speed: 0.16,
+          fade: 0.075,
+          palC: [0.6, 0.8, 1],
+          palD: [0.6, 0.5, 0.4],
+        }, // 細胞状セル
+      ];
+      let modeIdx = 0,
+        lastSwitch = 0;
+      const cur = {
+        scale: MODES[0].scale,
+        warp: MODES[0].warp,
+        speed: MODES[0].speed,
+        fade: MODES[0].fade,
+        palC: [...MODES[0].palC],
+        palD: [...MODES[0].palD],
+      };
+      function nextMode(t) {
+        modeIdx = (modeIdx + 1) % MODES.length;
+        lastSwitch = t;
+      }
+
+      /* ================= LOOP ================= */
+      const audio = new AudioEngine();
+      let lastT = performance.now() / 1000,
+        started = false,
+        shock = 0,
+        shockC = [0.5, 0.5];
+      const hud = {
+        bpm: document.getElementById("hBpm"),
+        mode: document.getElementById("hMode"),
+        chg: document.getElementById("hChg"),
+      };
+
+      function frame() {
+        requestAnimationFrame(frame);
+        const t = performance.now() / 1000;
+        const dt = Math.min(0.05, t - lastT);
+        lastT = t;
+        audio.update(dt);
+        const A = audio;
+
+        if (A.running && A.novelty > 2.1 && t - lastSwitch > 3.0) nextMode(t);
+        const M = MODES[modeIdx],
+          lk = 1 - Math.exp(-dt * 1.8);
+        cur.scale += (M.scale - cur.scale) * lk;
+        cur.warp += (M.warp - cur.warp) * lk;
+        cur.speed += (M.speed - cur.speed) * lk;
+        cur.fade += (M.fade - cur.fade) * lk;
+        for (let i = 0; i < 3; i++) {
+          cur.palC[i] += (M.palC[i] - cur.palC[i]) * lk;
+          cur.palD[i] += (M.palD[i] - cur.palD[i]) * lk;
+        }
+
+        if (A.beat) {
+          shock = 0.8 + A.change * 1.4; // 衝撃の強さも帰納的変化量に比例
+          shockC = [0.5 + (Math.random() - 0.5) * 0.3, 0.5 + (Math.random() - 0.5) * 0.3];
+        }
+        shock *= Math.exp(-dt * 6);
+
+        const speed = cur.speed * (0.5 + A.bass * 2.2);
+
+        /* 1) update particles */
+        gl.disable(gl.BLEND);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, posFB);
+        gl.viewport(0, 0, PT, PT);
+        gl.useProgram(updateProg);
+        gl.bindVertexArray(quadVAO);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, posA);
+        gl.uniform1i(uU.u_pos, 0);
+        gl.uniform1f(uU.u_dt, dt);
+        gl.uniform1f(uU.u_time, t);
+        gl.uniform1f(uU.u_scale, cur.scale);
+        gl.uniform1f(uU.u_speed, speed);
+        gl.uniform1f(uU.u_flux, Math.min(2, A.novelty * 0.4));
+        gl.uniform1f(uU.u_shock, shock);
+        gl.uniform1f(uU.u_warp, cur.warp);
+        gl.uniform2fv(uU.u_shockC, shockC);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        [posA, posB] = [posB, posA];
+        [posFA, posFB] = [posFB, posFA];
+
+        /* 2) fade trail */
+        gl.bindFramebuffer(gl.FRAMEBUFFER, accFA);
+        gl.viewport(0, 0, accW, accH);
+        gl.useProgram(fadeProg);
+        gl.bindVertexArray(quadVAO);
+        gl.uniform1f(fU.u_fade, cur.fade);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        /* 3) draw particles (additive) */
+        gl.useProgram(pointProg);
+        gl.bindVertexArray(emptyVAO);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, posA);
+        gl.uniform1i(pU.u_pos, 0);
+        gl.uniform1f(pU.u_ptSize, 1 + A.beatPulse * 1.5);
+        gl.uniform1f(pU.u_hue, A.centroid * 1.8 + t * 0.01);
+        gl.uniform1f(pU.u_bright, 0.05 + A.mid * 0.1 + A.beatPulse * 0.06);
+        gl.uniform3fv(pU.u_palC, cur.palC);
+        gl.uniform3fv(pU.u_palD, cur.palD);
+        gl.blendFunc(gl.ONE, gl.ONE);
+        gl.drawArrays(gl.POINTS, 0, PT * PT);
+        gl.disable(gl.BLEND);
+
+        /* 4) display */
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cv.width, cv.height);
+        gl.useProgram(displayProg);
+        gl.bindVertexArray(quadVAO);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, accumA);
+        gl.uniform1i(dU.u_tex, 0);
+        gl.uniform1f(dU.u_expo, 3.2);
+        gl.uniform1f(dU.u_beat, A.beatPulse);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        if ((frame.n = (frame.n || 0) + 1) % 6 === 0) {
+          hud.bpm.textContent = A.bpm || "--";
+          hud.mode.textContent = modeIdx;
+          hud.chg.textContent = A.change.toFixed(2);
+        }
+      }
+
+      /* ================= UI ================= */
+      const overlay = document.getElementById("overlay"),
+        hudEl = document.getElementById("hud");
+      function begin() {
+        overlay.style.display = "none";
+        hudEl.classList.remove("hidden");
+        if (!started) {
+          started = true;
+          requestAnimationFrame(frame);
+        }
+      }
+      document.getElementById("bMic").onclick = async () => {
+        try {
+          await audio.initMic();
+          begin();
+        } catch (e) {
+          alert(
+            "マイクにアクセスできませんでした(プレビュー環境ではブロックされることがあります)。デモ音源をお試しください。",
+          );
+        }
+      };
+      document.getElementById("bDemo").onclick = () => {
+        audio.initDemo();
+        begin();
+      };
+      addEventListener("keydown", (e) => {
+        if (e.key === "s" || e.key === "S") nextMode(performance.now() / 1000);
+        if (e.key === "f" || e.key === "F")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        if (e.key === "h" || e.key === "H") hudEl.classList.toggle("hidden");
+      });
+      let idleTimer;
+      addEventListener("mousemove", () => {
+        hudEl.classList.remove("hidden");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => hudEl.classList.add("hidden"), 3500);
+      });
+    </script>
+  </body>
+</html>

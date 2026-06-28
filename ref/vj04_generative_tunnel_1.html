@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VJ 04 — GENERATIVE TUNNEL</title>
+    <style>
+      :root {
+        --accent: #c792ff;
+        --dim: rgba(255, 255, 255, 0.45);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+        color: #fff;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        background: rgba(0, 0, 0, 0.82);
+        z-index: 10;
+        text-align: center;
+        padding: 24px;
+      }
+      #overlay h1 {
+        font-size: clamp(22px, 4vw, 40px);
+        font-weight: 700;
+        letter-spacing: 0.35em;
+      }
+      #overlay h1 span {
+        color: var(--accent);
+      }
+      #overlay p {
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.9;
+        max-width: 48em;
+      }
+      .btns {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        letter-spacing: 0.15em;
+        padding: 13px 26px;
+        cursor: pointer;
+        background: transparent;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        transition: 0.2s;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 5;
+        font-size: 11px;
+        line-height: 1.9;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        transition: opacity 0.6s;
+        mix-blend-mode: difference;
+      }
+      #hud .t {
+        color: var(--accent);
+        letter-spacing: 0.25em;
+        margin-bottom: 4px;
+      }
+      #hud .k {
+        color: var(--dim);
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: #000;
+        z-index: 20;
+        color: #f66;
+        font-size: 13px;
+        padding: 24px;
+        text-align: center;
+        line-height: 2;
+      }
+      .hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="t">04 GENERATIVE TUNNEL</div>
+      <div>
+        <span class="k">BPM</span> <span id="hBpm">--</span> &nbsp;<span class="k">ZONE</span>
+        <span id="hZone">0</span> &nbsp;<span class="k">RAD</span> <span id="hRad">1.0</span>
+      </div>
+      <div>
+        <span class="k">CURV</span> <span id="hCurv">0.5</span> &nbsp;<span class="k">CHG</span>
+        <span id="hChg">0.00</span>
+      </div>
+      <div class="k">[S] next zone&nbsp; [F] fullscreen&nbsp; [H] hud</div>
+    </div>
+
+    <div id="overlay">
+      <h1>04 <span>GENERATIVE</span> TUNNEL</h1>
+      <p>
+        無限に生成される実体のあるトンネル。約20mごとのゾーンで曲率・半径・壁の造形・色が生成され、<br />
+        しかも<b>直前のゾーンで鳴っていた音がそのパラメータを彫る</b>(低域が太く、変化が曲がりを作る)。<br />
+        ビートで光のパルスが発射され、カメラを追い越してトンネルの奥へ走っていきます。<br /><br />
+        ※ マイクがブロックされる環境では「デモ音源」を使ってください。
+      </p>
+      <div class="btns">
+        <button id="bMic">マイク入力で開始</button>
+        <button id="bDemo">デモ音源で開始</button>
+      </div>
+    </div>
+
+    <div id="err"><div id="errMsg">WebGL2 を初期化できませんでした。</div></div>
+
+    <script>
+      "use strict";
+      /* ================= AUDIO ENGINE(共通) ================= */
+      class AudioEngine {
+        constructor() {
+          this.ctx = null;
+          this.an = null;
+          this.freq = null;
+          this.prevF = null;
+          this.running = false;
+          this.bass = 0;
+          this.mid = 0;
+          this.high = 0;
+          this.bassSlow = 0;
+          this.fluxF = 0;
+          this.fluxS = 1e-4;
+          this.novelty = 1;
+          this.change = 0.1;
+          this.centroid = 0.3;
+          this.beat = 0;
+          this.beatPulse = 0;
+          this.lastBeat = -1;
+          this.intervals = [];
+          this.bpm = 0;
+        }
+        async initMic() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const st = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+          this._setup(this.ctx.createMediaStreamSource(st), false);
+        }
+        initDemo() {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.demo = new DemoLoop(this.ctx);
+          this._setup(this.demo.out, true);
+          this.demo.start();
+        }
+        _setup(src, toDest) {
+          this.an = this.ctx.createAnalyser();
+          this.an.fftSize = 2048;
+          this.an.smoothingTimeConstant = 0.5;
+          src.connect(this.an);
+          if (toDest) this.an.connect(this.ctx.destination);
+          this.freq = new Uint8Array(this.an.frequencyBinCount);
+          this.prevF = new Uint8Array(this.an.frequencyBinCount);
+          this.running = true;
+        }
+        update(dt) {
+          if (!this.running) return;
+          this.prevF.set(this.freq);
+          this.an.getByteFrequencyData(this.freq);
+          const n = this.freq.length,
+            binHz = this.ctx.sampleRate / 2 / n;
+          const bTo = Math.max(3, Math.round(160 / binHz)),
+            mTo = Math.round(2200 / binHz);
+          let b = 0,
+            m = 0,
+            h = 0,
+            flux = 0,
+            cw = 0,
+            cs = 0;
+          for (let i = 1; i < n; i++) {
+            const v = this.freq[i] / 255;
+            if (i < bTo) b += v;
+            else if (i < mTo) m += v;
+            else h += v;
+            const d = (this.freq[i] - this.prevF[i]) / 255;
+            if (d > 0) flux += d;
+            cw += v * i;
+            cs += v;
+          }
+          b /= bTo;
+          m /= mTo - bTo;
+          h /= n - mTo;
+          flux /= n * 0.05;
+          const k = 1 - Math.exp(-dt * 12);
+          this.bass += (b - this.bass) * k;
+          this.mid += (m - this.mid) * k;
+          this.high += (h - this.high) * k;
+          this.centroid += ((cs > 1e-3 ? cw / cs / n : 0.3) - this.centroid) * k * 0.5;
+          this.fluxF += (flux - this.fluxF) * (1 - Math.exp(-dt * 8));
+          this.fluxS += (flux - this.fluxS) * (1 - Math.exp(-dt * 0.35));
+          this.novelty = this.fluxF / Math.max(this.fluxS, 1e-4);
+          this.change = Math.min(1, Math.max(0.06, (this.novelty - 0.8) * 0.8));
+          this.bassSlow += (b - this.bassSlow) * (1 - Math.exp(-dt * 1.2));
+          const t = this.ctx.currentTime;
+          this.beat = 0;
+          if (b > this.bassSlow * 1.32 + 0.04 && t - this.lastBeat > 0.27) {
+            const iv = t - this.lastBeat;
+            this.beat = 1;
+            this.beatPulse = 1;
+            this.lastBeat = t;
+            if (iv > 0.27 && iv < 1.6) {
+              this.intervals.push(iv);
+              if (this.intervals.length > 10) this.intervals.shift();
+              const s = [...this.intervals].sort((a, c) => a - c);
+              this.bpm = Math.round(60 / s[s.length >> 1]);
+            }
+          }
+          this.beatPulse *= Math.exp(-dt * 5.5);
+        }
+      }
+      class DemoLoop {
+        constructor(ctx) {
+          this.ctx = ctx;
+          this.out = ctx.createGain();
+          this.out.gain.value = 0.9;
+          this.bpm = 126;
+          this.step = 0;
+          this.next = 0;
+          this.bar = 0;
+          this.section = 0;
+        }
+        start() {
+          this.next = this.ctx.currentTime + 0.1;
+          this.timer = setInterval(() => this._sched(), 25);
+        }
+        _sched() {
+          const spb = 60 / this.bpm / 4;
+          while (this.next < this.ctx.currentTime + 0.12) {
+            this._play(this.step % 16, this.next);
+            this.step++;
+            if (this.step % 16 === 0) {
+              this.bar++;
+              if (this.bar % 8 === 0) this.section = (this.section + 1) % 4;
+            }
+            this.next += spb;
+          }
+        }
+        _play(s, t) {
+          const sec = this.section;
+          if (sec !== 3 && s % 4 === 0) this.kick(t);
+          if (sec >= 1 && s % 2 === 1) this.hat(t, 0.12);
+          if (sec === 2 && s % 2 === 0) this.hat(t, 0.05);
+          if (sec === 2 && (s === 4 || s === 12)) this.clap(t);
+          const notes = [55, 55, 0, 55, 0, 55, 0, 82.4, 55, 0, 55, 55, 0, 65.4, 0, 49];
+          if (sec !== 3 && notes[s]) this.bass(t, notes[s], sec === 2 ? 1500 : 520);
+          if (sec === 3 && s === 0) this.pad(t);
+        }
+        kick(t) {
+          const o = this.ctx.createOscillator(),
+            g = this.ctx.createGain();
+          o.frequency.setValueAtTime(160, t);
+          o.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+          g.gain.setValueAtTime(1, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          o.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.3);
+        }
+        _nbuf() {
+          if (!this._nb) {
+            const b = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+            const d = b.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            this._nb = b;
+          }
+          return this._nb;
+        }
+        hat(t, dec) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "highpass";
+          f.frequency.value = 7500;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.22, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + dec + 0.02);
+        }
+        clap(t) {
+          const s = this.ctx.createBufferSource();
+          s.buffer = this._nbuf();
+          const f = this.ctx.createBiquadFilter();
+          f.type = "bandpass";
+          f.frequency.value = 1600;
+          f.Q.value = 1.2;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.5, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+          s.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          s.start(t);
+          s.stop(t + 0.2);
+        }
+        bass(t, fq, cut) {
+          const o = this.ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.value = fq;
+          const f = this.ctx.createBiquadFilter();
+          f.type = "lowpass";
+          f.frequency.value = cut;
+          f.Q.value = 6;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.3, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
+          o.connect(f);
+          f.connect(g);
+          g.connect(this.out);
+          o.start(t);
+          o.stop(t + 0.24);
+        }
+        pad(t) {
+          [220, 277.2, 329.6].forEach((fq, i) => {
+            const o = this.ctx.createOscillator();
+            o.type = "sawtooth";
+            o.frequency.value = fq * (i === 1 ? 1.004 : 1);
+            const f = this.ctx.createBiquadFilter();
+            f.type = "lowpass";
+            f.frequency.setValueAtTime(380, t);
+            f.frequency.linearRampToValueAtTime(2300, t + 3.4);
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.12, t + 0.6);
+            g.gain.linearRampToValueAtTime(0, t + 3.7);
+            o.connect(f);
+            f.connect(g);
+            g.connect(this.out);
+            o.start(t);
+            o.stop(t + 3.8);
+          });
+        }
+      }
+
+      /* ================= GL ================= */
+      const cv = document.getElementById("gl");
+      const gl = cv.getContext("webgl2", { antialias: false, alpha: false });
+      if (!gl) {
+        document.getElementById("err").style.display = "grid";
+        throw new Error("no webgl2");
+      }
+
+      function mkShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+        return s;
+      }
+      function mkProg(vs, fs) {
+        const p = gl.createProgram();
+        gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p;
+      }
+
+      const QUAD_VS = `#version 300 es
+layout(location=0) in vec2 a;
+out vec2 v_uv;
+void main(){v_uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+
+      const quadVAO = gl.createVertexArray();
+      gl.bindVertexArray(quadVAO);
+      const qb = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      /*
+ トンネルの経路と半径はゾーン単位の区分関数。
+ ゾーン境界(zoneLen=20)で hash(zoneIdx) から係数を引き、smoothstepで補間するので
+ 経路はC1連続のまま、20mごとに性格の違う区間が無限に生成される。
+ 係数には JSから渡す「音楽の履歴」(u_carve: 前ゾーンの低域/変化量)が混ざる。
+ シェーダとJSで同一の式を使い、カメラは常に経路上に乗る。
+*/
+      const PATH_GLSL = `
+float h11(float n){return fract(sin(n*127.1)*43758.5453);}
+float zmix(float z,float seed){
+  float zn=z/20.0;
+  float i=floor(zn),f=zn-i;
+  f=f*f*(3.-2.*f);
+  return mix(h11(i+seed),h11(i+1.+seed),f);
+}
+vec2 pathPt(float z,float carve){
+  float cx=(zmix(z,3.7)*2.-1.)*(1.2+carve*2.4);
+  float cy=(zmix(z,9.1)*2.-1.)*(1.0+carve*2.0);
+  // ゾーン係数が振幅を、固定の正弦が滑らかさを与える
+  return vec2(sin(z*.21)*.45+cx, cos(z*.16)*.4+cy);
+}
+float radiusAt(float z,float fat){
+  float base=.9+zmix(z,17.3)*1.1+fat*1.2;
+  return base*(1.+.18*sin(z*.43));
+}`;
+
+      const MARCH_FS = `#version 300 es
+precision highp float;
+uniform float u_time,u_aspect,u_z,u_roll,u_carve,u_fat,u_facets,u_rough,
+              u_ribSpace,u_beatPhase,u_bass,u_beat,u_fogMix;
+uniform vec4 u_pulses;        // 走行中の光パルスのz位置(最大4)
+uniform vec3 u_palA,u_palB,u_palA2,u_palB2;  // 現ゾーン/次ゾーンのパレット
+in vec2 v_uv; out vec4 o;
+#define STEPS 72
+${"$"}{0}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vnoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+vec3 pal(float t,vec3 a,vec3 b){return .5+.5*cos(6.28318*(a*t+b));}
+
+float map(vec3 p){
+  vec2 c=pathPt(p.z,u_carve);
+  vec2 q=p.xy-c;
+  float r=length(q);
+  float d=radiusAt(p.z,u_fat)-r;             // トンネル内側で正
+  float ang=atan(q.y,q.x);
+  // 壁の造形: ファセット溝(ゾーンごとに本数が変わる) + ノイズ岩肌
+  float facet=pow(.5+.5*sin(ang*u_facets+p.z*.7),2.);
+  float n=vnoise(vec2(ang*2.5,p.z*1.1));
+  d-=facet*.13*u_rough+n*.22*u_rough;
+  // リブ(梁): ribSpaceごとの環、ビート間隔の距離に対応
+  float rz=abs(mod(p.z,u_ribSpace)-u_ribSpace*.5);
+  d-=smoothstep(.30,.0,rz)*.16;
+  return d*.55;                              // 変位ぶんの安全係数
+}
+vec3 zonePal(float z,float t){
+  // ゾーン境界で色がクロスフェード
+  float f=smoothstep(.35,.65,fract(z/20.));
+  return mix(pal(t,u_palA,u_palB),pal(t,u_palA2,u_palB2),f);
+}
+void main(){
+  vec2 sp=(v_uv-.5)*2.; sp.x*=u_aspect;
+  sp=rot(u_roll)*sp;
+  vec3 ro=vec3(pathPt(u_z,u_carve),u_z);
+  vec3 ta=vec3(pathPt(u_z+2.2,u_carve),u_z+2.2);
+  vec3 fw=normalize(ta-ro);
+  vec3 ri=normalize(cross(fw,vec3(0.,1.,0.)));
+  vec3 up=cross(ri,fw);
+  vec3 rd=normalize(sp.x*ri+sp.y*up+1.35*fw);
+
+  float t=0.,d=0.;float hit=-1.;
+  for(int i=0;i<STEPS;i++){
+    vec3 pos=ro+rd*t;
+    d=map(pos);
+    if(d<.002*max(t,.5)){hit=t;break;}
+    t+=max(d,.012);
+    if(t>34.)break;
+  }
+  vec3 col=vec3(0.);
+  if(hit>0.){
+    vec3 pos=ro+rd*hit;
+    vec2 e=vec2(.005,0.);
+    vec3 nor=normalize(vec3(
+      map(pos+e.xyy)-map(pos-e.xyy),
+      map(pos+e.yxy)-map(pos-e.yxy),
+      map(pos+e.yyx)-map(pos-e.yyx)));
+    vec2 c=pathPt(pos.z,u_carve);
+    float ang=atan(pos.y-c.y,pos.x-c.x);
+    // ヘッドライト + 壁の素材色(角度とzで縞)
+    float dif=max(dot(nor,-rd),0.);
+    vec3 wall=zonePal(pos.z,ang*.5/3.14159+pos.z*.03);
+    col=wall*dif*(.55+u_bass*.3);
+    // リブの発光: リブ番号ごとに位相が違う → 光がリブを順に駆け上がる
+    float rz=abs(mod(pos.z,u_ribSpace)-u_ribSpace*.5);
+    float ribIdx=floor(pos.z/u_ribSpace);
+    float ribGlow=smoothstep(.22,.0,rz)*
+      pow(.5+.5*sin(ribIdx*1.0-u_beatPhase*6.28318),6.);
+    col+=zonePal(pos.z,.15)*ribGlow*1.8;
+    // 光パルス: ビートで発射されカメラを追い越して奥へ走る局所光源
+    for(int k=0;k<4;k++){
+      float pz=u_pulses[k];
+      if(pz>0.){
+        float dz=abs(pos.z-pz);
+        col+=zonePal(pz,.6)*exp(-dz*dz*.55)*1.6*max(dot(nor,normalize(vec3(c-pos.xy,pz-pos.z))),.15);
+      }
+    }
+    // 距離フォグ(ゾーン色)
+    col=mix(col,zonePal(u_z+12.,.05)*u_fogMix,1.-exp(-hit*.085));
+  } else {
+    col=zonePal(u_z+14.,.05)*u_fogMix;
+  }
+  col+=u_beat*.04;                            // ビートで全体を“ほんの少し”だけ
+  vec2 dd=v_uv-.5; col*=1.-dot(dd,dd)*.8;
+  o=vec4(col,1.);
+}`.replace("${0}", PATH_GLSL);
+
+      const DISPLAY_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+uniform float u_beat;
+in vec2 v_uv; out vec4 o;
+void main(){
+  vec2 d=v_uv-.5;
+  float ca=.005*u_beat;
+  vec3 c;
+  c.r=texture(u_tex,v_uv+d*ca).r;
+  c.g=texture(u_tex,v_uv).g;
+  c.b=texture(u_tex,v_uv-d*ca).b;
+  c=c/(1.+c*.25);
+  o=vec4(pow(c,vec3(.87)),1.);
+}`;
+
+      const marchProg = mkProg(QUAD_VS, MARCH_FS);
+      const displayProg = mkProg(QUAD_VS, DISPLAY_FS);
+      const U = (n) => gl.getUniformLocation(marchProg, n);
+      const mU = {
+        time: U("u_time"),
+        aspect: U("u_aspect"),
+        z: U("u_z"),
+        roll: U("u_roll"),
+        carve: U("u_carve"),
+        fat: U("u_fat"),
+        facets: U("u_facets"),
+        rough: U("u_rough"),
+        ribSpace: U("u_ribSpace"),
+        beatPhase: U("u_beatPhase"),
+        bass: U("u_bass"),
+        beat: U("u_beat"),
+        fogMix: U("u_fogMix"),
+        pulses: U("u_pulses"),
+        palA: U("u_palA"),
+        palB: U("u_palB"),
+        palA2: U("u_palA2"),
+        palB2: U("u_palB2"),
+      };
+      const dU = {
+        tex: gl.getUniformLocation(displayProg, "u_tex"),
+        beat: gl.getUniformLocation(displayProg, "u_beat"),
+      };
+
+      let rtW = 0,
+        rtH = 0,
+        rtTex,
+        rtFbo;
+      function resize() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        cv.width = innerWidth * dpr;
+        cv.height = innerHeight * dpr;
+        rtW = Math.max(2, cv.width >> 1);
+        rtH = Math.max(2, cv.height >> 1);
+        rtTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, rtTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, rtW, rtH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        rtFbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, rtFbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rtTex, 0);
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      /* ================= ZONE GENERATION(音楽の履歴が次のゾーンを彫る) ================= */
+      const ZONE_LEN = 20;
+      function h11(n) {
+        const x = Math.sin(n * 127.1) * 43758.5453;
+        return x - Math.floor(x);
+      }
+      function mulb(seed) {
+        let a = seed >>> 0;
+        return () => {
+          a |= 0;
+          a = (a + 0x6d2b79f5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      // ゾーン履歴: zoneIdx → {carve, fat, facets, rough, palA, palB} を確定保存
+      const zones = {};
+      let reroll = 0,
+        lastForce = 0;
+      let accBass = 0,
+        accChange = 0,
+        accN = 0; // 現ゾーンでの音の蓄積
+      function genZone(idx) {
+        if (zones[idx]) return zones[idx];
+        const r = mulb(idx * 7919 + 13 + reroll * 7717);
+        // 音楽の履歴: 蓄積した低域が太さに、変化量が曲がりに反映される
+        const mb = accN > 0 ? accBass / accN : 0.3;
+        const mc = accN > 0 ? accChange / accN : 0.3;
+        const z = {
+          carve: 0.15 + r() * 0.5 + mc * 0.7, // 変化の多い曲ほど曲がりくねる
+          fat: r() * 0.5 + mb * 1.3, // 低域が鳴っていたほど太く彫られる
+          facets: 3 + Math.floor(r() * 10),
+          rough: 0.4 + r() * 0.9,
+          palA: [0.6 + r() * 1.4, 0.6 + r() * 1.0, 0.4 + r() * 0.8],
+          palB: [r(), r(), r()],
+          fogMix: 0.04 + r() * 0.1,
+        };
+        zones[idx] = z;
+        accBass = 0;
+        accChange = 0;
+        accN = 0;
+        return z;
+      }
+
+      /* ================= LOOP ================= */
+      const audio = new AudioEngine();
+      let lastT = performance.now() / 1000,
+        started = false;
+      let camZ = 0,
+        roll = 0,
+        rollTarget = 0,
+        rollDir = 1,
+        beatPhase = 0,
+        curZone = -1;
+      const cur = {
+        carve: 0.3,
+        fat: 0.4,
+        facets: 6,
+        rough: 0.6,
+        fogMix: 0.08,
+        palA: [1, 0.8, 0.6],
+        palB: [0.1, 0.3, 0.5],
+        palA2: [1, 0.8, 0.6],
+        palB2: [0.1, 0.3, 0.5],
+      };
+      const pulses = new Float32Array([-1, -1, -1, -1]);
+      let pulseIdx = 0;
+      const hud = {
+        bpm: document.getElementById("hBpm"),
+        zone: document.getElementById("hZone"),
+        rad: document.getElementById("hRad"),
+        curv: document.getElementById("hCurv"),
+        chg: document.getElementById("hChg"),
+      };
+
+      function frame() {
+        requestAnimationFrame(frame);
+        const t = performance.now() / 1000;
+        const dt = Math.min(0.05, t - lastT);
+        lastT = t;
+        audio.update(dt);
+        const A = audio;
+
+        // 音の履歴を蓄積(次ゾーンの彫刻材料)
+        if (A.running) {
+          accBass += A.bass;
+          accChange += A.change;
+          accN++;
+        }
+
+        // 前進: BPM基準、低域とCHGで増速
+        const bps = (A.bpm || 120) / 60;
+        const speed = 2.6 * (0.7 + A.bass * 0.55 + A.change * 0.45);
+        camZ += dt * speed;
+        beatPhase += dt * bps; // リブ発光の位相(連続)
+        if (A.beat) {
+          // 光パルス発射(強さは省略、速度は固定でカメラより速い)
+          pulses[pulseIdx % 4] = camZ + 1.5;
+          pulseIdx++;
+          rollTarget += ((rollDir * Math.PI) / 14) * (0.4 + A.change);
+          rollDir *= -1;
+        }
+        for (let i = 0; i < 4; i++) {
+          if (pulses[i] > 0) {
+            pulses[i] += dt * speed * 3.4;
+            if (pulses[i] - camZ > 30) pulses[i] = -1;
+          } // 奥へ消えたら破棄
+        }
+        roll += (rollTarget - roll) * (1 - Math.exp(-dt * 5));
+
+        // ゾーン管理: 現在地と1つ先を生成。noveltyスパイクで“次のゾーン”を作り直す
+        const zi = Math.floor(camZ / ZONE_LEN);
+        if (zi !== curZone) curZone = zi;
+        if (A.novelty > 2.3 && t - lastForce > 3 && accN > 60) {
+          reroll++;
+          delete zones[zi + 1];
+          lastForce = t; // 新しい種+現在までの音の履歴で再彫刻
+        }
+        cur.target = { z0: genZone(zi), z1: genZone(zi + 1) };
+        if (cur.target) {
+          const { z0, z1 } = cur.target,
+            lk = 1 - Math.exp(-dt * 1.4);
+          cur.carve += (z0.carve - cur.carve) * lk;
+          cur.fat += (z0.fat - cur.fat) * lk;
+          cur.facets += (z0.facets - cur.facets) * lk;
+          cur.rough += (z0.rough - cur.rough) * lk;
+          cur.fogMix += (z0.fogMix - cur.fogMix) * lk;
+          for (let i = 0; i < 3; i++) {
+            cur.palA[i] += (z0.palA[i] - cur.palA[i]) * lk;
+            cur.palB[i] += (z0.palB[i] - cur.palB[i]) * lk;
+            cur.palA2[i] += (z1.palA[i] - cur.palA2[i]) * lk;
+            cur.palB2[i] += (z1.palB[i] - cur.palB2[i]) * lk;
+          }
+        }
+        // リブ間隔 = 1ビートで進む距離 → リブがBPMで流れていく
+        const ribSpace = Math.max(0.8, speed / Math.max(bps, 0.5));
+
+        /* march (half-res) */
+        gl.bindFramebuffer(gl.FRAMEBUFFER, rtFbo);
+        gl.viewport(0, 0, rtW, rtH);
+        gl.useProgram(marchProg);
+        gl.bindVertexArray(quadVAO);
+        gl.uniform1f(mU.time, t);
+        gl.uniform1f(mU.aspect, cv.width / cv.height);
+        gl.uniform1f(mU.z, camZ);
+        gl.uniform1f(mU.roll, roll);
+        gl.uniform1f(mU.carve, cur.carve);
+        gl.uniform1f(mU.fat, cur.fat);
+        gl.uniform1f(mU.facets, cur.facets);
+        gl.uniform1f(mU.rough, cur.rough);
+        gl.uniform1f(mU.ribSpace, ribSpace);
+        gl.uniform1f(mU.beatPhase, beatPhase);
+        gl.uniform1f(mU.bass, A.bass);
+        gl.uniform1f(mU.beat, A.beatPulse);
+        gl.uniform1f(mU.fogMix, cur.fogMix);
+        gl.uniform4fv(mU.pulses, pulses);
+        gl.uniform3fv(mU.palA, cur.palA);
+        gl.uniform3fv(mU.palB, cur.palB);
+        gl.uniform3fv(mU.palA2, cur.palA2);
+        gl.uniform3fv(mU.palB2, cur.palB2);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        /* display */
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, cv.width, cv.height);
+        gl.useProgram(displayProg);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, rtTex);
+        gl.uniform1i(dU.tex, 0);
+        gl.uniform1f(dU.beat, A.beatPulse);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        if ((frame.n = (frame.n || 0) + 1) % 6 === 0) {
+          hud.bpm.textContent = A.bpm || "--";
+          hud.zone.textContent = curZone;
+          hud.rad.textContent = (0.9 + cur.fat).toFixed(2);
+          hud.curv.textContent = cur.carve.toFixed(2);
+          hud.chg.textContent = A.change.toFixed(2);
+        }
+      }
+
+      /* ================= UI ================= */
+      const overlay = document.getElementById("overlay"),
+        hudEl = document.getElementById("hud");
+      function begin() {
+        overlay.style.display = "none";
+        hudEl.classList.remove("hidden");
+        if (!started) {
+          started = true;
+          requestAnimationFrame(frame);
+        }
+      }
+      document.getElementById("bMic").onclick = async () => {
+        try {
+          await audio.initMic();
+          begin();
+        } catch (e) {
+          alert(
+            "マイクにアクセスできませんでした(プレビュー環境ではブロックされることがあります)。デモ音源をお試しください。",
+          );
+        }
+      };
+      document.getElementById("bDemo").onclick = () => {
+        audio.initDemo();
+        begin();
+      };
+      addEventListener("keydown", (e) => {
+        if (e.key === "s" || e.key === "S") {
+          camZ = Math.floor(camZ / ZONE_LEN + 1) * ZONE_LEN + 0.01;
+        }
+        if (e.key === "f" || e.key === "F")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        if (e.key === "h" || e.key === "H") hudEl.classList.toggle("hidden");
+      });
+      let idleTimer;
+      addEventListener("mousemove", () => {
+        hudEl.classList.remove("hidden");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => hudEl.classList.add("hidden"), 3500);
+      });
+    </script>
+  </body>
+</html>
