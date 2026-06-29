@@ -1,12 +1,15 @@
 import "./style.css";
 import { SCENES, findScene } from "./scenes/registry.ts";
 import { mountScene } from "./engine/host.ts";
+import { mountLive } from "./engine/live.ts";
 
 const params = new URLSearchParams(location.search);
 const sceneId = params.get("scene");
 const def = findScene(sceneId);
 
-if (def?.href) {
+if (params.has("live")) {
+  mountLive();
+} else if (def?.href) {
   location.href = def.href;
 } else if (def?.create) {
   mountScene(def);
@@ -38,6 +41,7 @@ function renderIndex(): void {
       <h1>VJ&nbsp;<span>SYSTEM</span></h1>
       <p>音楽インタラクティブな100種のVJシーン。<b>${live}</b>本が再生可能、残りは順次実装中。<br/>
          各シーンでマイク入力かデモ音源を選んで開始してください。</p>
+      <a href="?live" class="live-btn">▶ LIVE MODE</a>
     </header>
     <main class="grid">${cards}</main>
     <footer class="gfoot">WebGL2 · Web Audio · Vite+ &nbsp;|&nbsp; ↑↓ scroll · click to play</footer>`;

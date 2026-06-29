@@ -258,7 +258,13 @@ export class AudioEngine {
         this.intervals.push(iv);
         if (this.intervals.length > 12) this.intervals.shift();
         const sorted = [...this.intervals].sort((a, c) => a - c);
-        this.bpm = Math.round(60 / sorted[sorted.length >> 1]);
+        // Fold tempo into 100–200 BPM so half/double-time mis-detections collapse to a
+        // single octave (e.g. 70→140, 240→120). The range is exactly 2×, so the fold
+        // is unique. The live mixer counts beats from this normalised tempo.
+        let folded = 60 / sorted[sorted.length >> 1];
+        while (folded < 100) folded *= 2;
+        while (folded > 200) folded /= 2;
+        this.bpm = Math.round(folded);
       }
       this.beatPhase = 0; // resync downbeat to the kick
       this.beatCount = (this.beatCount + 1) % 4;
