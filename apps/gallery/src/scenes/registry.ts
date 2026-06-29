@@ -12,6 +12,10 @@ import { createTerrain } from "./terrain.ts";
 import { createVoronoi } from "./voronoi.ts";
 import { createBars } from "./bars.ts";
 import { createMatrix } from "./matrix.ts";
+import { createFluid } from "./fluid.ts";
+import { createClouds } from "./clouds.ts";
+import { createGlitch } from "./glitch.ts";
+import { createSpectrogram } from "./spectrogram.ts";
 
 interface Entry {
   no: string;
@@ -70,7 +74,14 @@ const E: (Entry | Planned)[] = [
   },
 
   // ---- roadmap (planned) ----
-  ["06", "FLUID", "fluids", "安定流体(Navier-Stokes)の煙。ビートが力と染料を注入する有機的な渦。"],
+  {
+    no: "06",
+    title: "FLUID",
+    family: "fluids",
+    blurb:
+      "本物の安定流体ソルバ(移流＋ヤコビ圧力射影)が色染料を押し流す。底のエミッタが煙を吹き上げ、帯域が渦を巻き、キックごとに明るい渦が炸裂する。",
+    create: createFluid,
+  },
   [
     "07",
     "BOIDS",
@@ -101,7 +112,14 @@ const E: (Entry | Planned)[] = [
   },
   ["23", "METABALLS", "raymarch", "レイマーチのメタボール。ビートで分裂・融合。"],
   ["24", "GYROID", "raymarch", "ジャイロイド(TPMS)曲面の内部を進む。"],
-  ["25", "CLOUDS", "raymarch", "ボリュメトリック雲。光芒が音で差す。"],
+  {
+    no: "25",
+    title: "CLOUDS",
+    family: "raymarch",
+    blurb:
+      "高度のボリュメトリック雲。レイマーチした濃度場を太陽が照らし、低域が雲量を厚くし、重心が空と陽を染め、キックが雲の中で稲妻を閃かせる。",
+    create: createClouds,
+  },
   ["26", "OCEAN", "raymarch", "Gerstner波の海。うねりが低域で高まる。"],
   ["27", "CITY", "raymarch", "手続き型スカイラインのドライブ。ネオンが拍で点滅。"],
   ["28", "KIFS", "raymarch", "万華鏡IFSフラクタル。折り畳みが音で変形。"],
@@ -148,7 +166,14 @@ const E: (Entry | Planned)[] = [
       "落下するグリフの雨。列ごとに輝く先頭と尾を引く軌跡が流れ、低域で雨脚が速まり、重心が色を染め、キックがランダムな列にバーストを走らせる。",
     create: createMatrix,
   },
-  ["51", "GLITCH", "glitch", "データモッシュの帯。発火でブロックがずれる。"],
+  {
+    no: "51",
+    title: "GLITCH",
+    family: "glitch",
+    blurb:
+      "データモッシュのフィードバック。前フレームがブロック変位とチャンネルずれで還流し、スペクトラムの帯が色を注入。スネアとキックで画面が裂け、反転・走査線が走る。",
+    create: createGlitch,
+  },
   ["52", "OSCILLOSCOPE", "scan", "オシロスコープ表示。波形がそのまま線になる。"],
   ["53", "SCOPE_XY", "scan", "X-Yリサジュー・スコープ。ステレオ的に揺れる。"],
   ["54", "TYPO", "typography", "キネティック・タイポグラフィ。語が拍で結晶化。"],
@@ -186,7 +211,14 @@ const E: (Entry | Planned)[] = [
   ["86", "STAINED", "pattern", "ステンドグラス状ボロノイ。光が透ける。"],
   ["87", "CIRCUIT", "pattern", "PCBの配線が音で引かれていく。"],
   ["88", "MAZE", "pattern", "成長する迷路。拍で経路が伸びる。"],
-  ["89", "SPECTROGRAM", "spectral", "スクロールするスペクトログラムの滝。"],
+  {
+    no: "89",
+    title: "SPECTROGRAM",
+    family: "spectral",
+    blurb:
+      "スクロールするスペクトログラムの滝。毎フレーム右端に最新の周波数列を書き、履歴が左へ流れる。音の直近の過去がヒートマップとして見える。重心で配色、キックで先頭が輝く。",
+    create: createSpectrogram,
+  },
   ["90", "RADIAL_EQ", "spectral", "放射スペクトラムの開花。"],
   ["91", "TERRAIN_FFT", "spectral", "スペクトラムが地形になり前進する。"],
   ["92", "PARTICLE_FFT", "spectral", "パーティクルで作るバーグラフ。"],
