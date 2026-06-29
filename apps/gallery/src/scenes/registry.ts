@@ -8,6 +8,10 @@ import { createReaction } from "./reaction.ts";
 import { createMoire } from "./moire.ts";
 import { createTunnel } from "./tunnel.ts";
 import { createWarp } from "./warp.ts";
+import { createTerrain } from "./terrain.ts";
+import { createVoronoi } from "./voronoi.ts";
+import { createBars } from "./bars.ts";
+import { createMatrix } from "./matrix.ts";
 
 interface Entry {
   no: string;
@@ -87,7 +91,14 @@ const E: (Entry | Planned)[] = [
   ["19", "DLA", "simulation", "拡散律速凝集。雷状・珊瑚状の結晶が音で成長する。"],
   ["20", "MANDELBULB", "raymarch", "3Dフラクタル・マンデルバルブ。powが音で脈動。"],
   ["21", "MENGER", "raymarch", "メンガーのスポンジを無限ズーム。低域で反復が増える。"],
-  ["22", "TERRAIN", "raymarch", "稜線地形を低空飛行。スペクトルが地形を彫る。"],
+  {
+    no: "22",
+    title: "TERRAIN",
+    family: "raymarch",
+    blurb:
+      "稜線地形を低空飛行するレイマーチ。低域が山を隆起させ、スペクトルが起伏を波打たせ、重心が空と陽の配色を、キックが稜線の発光を脈打たせる。",
+    create: createTerrain,
+  },
   ["23", "METABALLS", "raymarch", "レイマーチのメタボール。ビートで分裂・融合。"],
   ["24", "GYROID", "raymarch", "ジャイロイド(TPMS)曲面の内部を進む。"],
   ["25", "CLOUDS", "raymarch", "ボリュメトリック雲。光芒が音で差す。"],
@@ -97,7 +108,14 @@ const E: (Entry | Planned)[] = [
   ["29", "APOLLONIAN", "raymarch", "アポロニウスの球充填。重心で半径が変わる。"],
   ["30", "MANDELBROT", "fragment", "マンデルブロ/ジュリアのモーフ・ズーム。"],
   ["31", "PLASMA", "fragment", "古典プラズマ。正弦の重ね合わせが帯域で波打つ。"],
-  ["32", "VORONOI", "fragment", "セルラー・ボロノイの破砕。発火で割れる硝子。"],
+  {
+    no: "32",
+    title: "VORONOI",
+    family: "fragment",
+    blurb:
+      "セルラー・ボロノイの破砕。各セルが色付きの硝子片になり、音圧で漂い、高域で輪郭が鋭くなり、キックで全体が割れて色相が回る。",
+    create: createVoronoi,
+  },
   ["33", "TRUCHET", "fragment", "トルーシェ・タイルの織り。拍でパターンが組み変わる。"],
   ["34", "HEXGRID", "fragment", "六角セルの脈動。帯域がセルを点灯。"],
   ["35", "DOMAINWARP", "fragment", "fBmのドメインワープ。流体的なマーブル模様。"],
@@ -105,7 +123,14 @@ const E: (Entry | Planned)[] = [
   ["37", "INTERFERENCE", "fragment", "波の干渉縞。複数音源が拍で動く。"],
   ["38", "PHYLLOTAXIS", "fragment", "葉序の螺旋ドット。重心で開度が変わる。"],
   ["39", "GABOR", "fragment", "ガボールノイズの縞。方位が帯域で回る。"],
-  ["40", "BARS", "geometry", "3Dスペクトラム・バーの都市を旋回。"],
+  {
+    no: "40",
+    title: "BARS",
+    family: "geometry",
+    blurb:
+      "3Dスペクトラム・バーの都市。各周波数帯がリング上の光る柱になり、高さがその帯域のエネルギー。カメラが旋回し、床に反射する発光イコライザー。",
+    create: createBars,
+  },
   ["41", "TORUS", "geometry", "結ばれたチューブ(トーラス結び)。音で捻れる。"],
   ["42", "LISSAJOUS", "geometry", "3Dリサジュー曲線。周波数比が音で動く。"],
   ["43", "SUPERSHAPE", "geometry", "スーパーフォーミュラのモーフ。"],
@@ -115,7 +140,14 @@ const E: (Entry | Planned)[] = [
   ["47", "SPHEREFIELD", "geometry", "インスタンス球の場。帯域で隆起。"],
   ["48", "TENTACLE", "raymarch", "SDFの触手群。音でうねる。"],
   ["49", "ASCII", "typography", "ASCIIスペクトラム。波形が文字に変換される。"],
-  ["50", "MATRIX", "typography", "落下するグリフ。帯域で雨脚が変わる。"],
+  {
+    no: "50",
+    title: "MATRIX",
+    family: "typography",
+    blurb:
+      "落下するグリフの雨。列ごとに輝く先頭と尾を引く軌跡が流れ、低域で雨脚が速まり、重心が色を染め、キックがランダムな列にバーストを走らせる。",
+    create: createMatrix,
+  },
   ["51", "GLITCH", "glitch", "データモッシュの帯。発火でブロックがずれる。"],
   ["52", "OSCILLOSCOPE", "scan", "オシロスコープ表示。波形がそのまま線になる。"],
   ["53", "SCOPE_XY", "scan", "X-Yリサジュー・スコープ。ステレオ的に揺れる。"],
