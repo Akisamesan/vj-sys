@@ -16,6 +16,10 @@ import { createFluid } from "./fluid.ts";
 import { createClouds } from "./clouds.ts";
 import { createGlitch } from "./glitch.ts";
 import { createSpectrogram } from "./spectrogram.ts";
+import { createMandelbrot } from "./mandelbrot.ts";
+import { createAurora } from "./aurora.ts";
+import { createAttractor } from "./attractor.ts";
+import { createRings } from "./rings.ts";
 
 interface Entry {
   no: string;
@@ -124,7 +128,14 @@ const E: (Entry | Planned)[] = [
   ["27", "CITY", "raymarch", "手続き型スカイラインのドライブ。ネオンが拍で点滅。"],
   ["28", "KIFS", "raymarch", "万華鏡IFSフラクタル。折り畳みが音で変形。"],
   ["29", "APOLLONIAN", "raymarch", "アポロニウスの球充填。重心で半径が変わる。"],
-  ["30", "MANDELBROT", "fragment", "マンデルブロ/ジュリアのモーフ・ズーム。"],
+  {
+    no: "30",
+    title: "MANDELBROT",
+    family: "fragment",
+    blurb:
+      "生きたジュリア集合。定数cが音に沿って動き、塵→渦巻き→樹状へと絶えずモーフ。levelが呼吸するズーム、重心が配色、高域が細部を増やす。連続反復彩色。",
+    create: createMandelbrot,
+  },
   ["31", "PLASMA", "fragment", "古典プラズマ。正弦の重ね合わせが帯域で波打つ。"],
   {
     no: "32",
@@ -184,7 +195,14 @@ const E: (Entry | Planned)[] = [
   ["59", "STROBE", "light", "ストロボ・パターン。発火で明滅。"],
   ["60", "BOKEH", "light", "デフォーカスの光球。低域で被写界が呼吸。"],
   ["61", "PRISM", "light", "プリズム分光。白色が虹に割れる。"],
-  ["62", "AURORA", "light", "カーテン状オーロラ。高域で揺らめく。"],
+  {
+    no: "62",
+    title: "AURORA",
+    family: "light",
+    blurb:
+      "星空にかかるオーロラのカーテン。fBmのリボンが波打ち、低域がカーテンを持ち上げ、高域が揺らめかせ、重心が緑↔紫の色相を動かし、キックが光の波を走らせる。",
+    create: createAurora,
+  },
   ["63", "GODRAYS", "light", "放射状の光芒。重心で射す方向が変わる。"],
   ["64", "NEONSIGN", "light", "明滅するネオン管。拍で点灯シーケンス。"],
   ["65", "KALEIDO_FB", "feedback", "フィードバック万華鏡。再帰像が回転対称に。"],
@@ -200,7 +218,14 @@ const E: (Entry | Planned)[] = [
   ["75", "FLAG", "physics", "風になびく旗。突風が拍で吹く。"],
   ["76", "PENDULUM", "physics", "カオス二重振り子の群れ。軌跡が描かれる。"],
   ["77", "SPRINGMESH", "physics", "質点ばねメッシュ。発火で波が走る。"],
-  ["78", "ATTRACTOR", "strange", "ローレンツ/アイザワのストレンジアトラクタ。"],
+  {
+    no: "78",
+    title: "ATTRACTOR",
+    family: "strange",
+    blurb:
+      "ローレンツのストレンジアトラクタを点群で。数千の粒子がカオス流に乗って蝶を描き、低域が翼(ρ)を広げ、levelが視点を回し、重心が雲を染める。",
+    create: createAttractor,
+  },
   ["79", "ROSSLER", "strange", "レスラー・アトラクタの軌道。"],
   ["80", "CLIFFORD", "strange", "クリフォード・アトラクタの点雲。"],
   ["81", "FIELDLINES", "fragment", "ベクトル場の流線。音で渦が動く。"],
@@ -224,7 +249,14 @@ const E: (Entry | Planned)[] = [
   ["92", "PARTICLE_FFT", "spectral", "パーティクルで作るバーグラフ。"],
   ["93", "MANDALA", "spectral", "対称マンダラにスペクトラムを写す。"],
   ["94", "CYMATICS", "spectral", "クラドニ図形(振動板)。帯域で節が動く。"],
-  ["95", "RINGS", "spectral", "同心円のビートリング。"],
+  {
+    no: "95",
+    title: "RINGS",
+    family: "spectral",
+    blurb:
+      "同心ビートリング＋放射イコライザー。スペクトラムが円周に巻きつき(角度=周波数)、ラウドな帯域が外へ膨らみ、キックごとに明るい衝撃波リングが縁まで広がる。",
+    create: createRings,
+  },
   ["96", "TYPO_FIELD", "spectral", "エネルギー場CA上に文字が現れる。"],
   ["97", "KNOT", "geometry", "音で変形するトーラス結び目。"],
   ["98", "BLACKHOLE", "raymarch", "重力レンズのブラックホール。降着円盤が脈動。"],
