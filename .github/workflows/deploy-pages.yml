@@ -1,6 +1,7 @@
-name: Deploy LUMEN to GitHub Pages
+name: Deploy VJ SYSTEM to GitHub Pages
 
-# Builds the apps/lumen Vite+ app and publishes it to GitHub Pages.
+# Builds the gallery (site root) and the standalone LUMEN app (under /lumen/) and
+# publishes them together to GitHub Pages.
 # One-time setup in the repo: Settings -> Pages -> Source = "GitHub Actions".
 # (Private repos need a paid plan for Pages, otherwise make the repo public.)
 
@@ -33,13 +34,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build LUMEN
-        # base must match the Pages path: https://<owner>.github.io/<repo>/
-        run: npm run build -w lumen -- --base "/${{ github.event.repository.name }}/"
+      # base must match the Pages path: https://<owner>.github.io/<repo>/
+      - name: Build gallery (site root)
+        run: npm run build -w gallery -- --base "/${{ github.event.repository.name }}/"
+
+      - name: Build LUMEN (/lumen/)
+        run: npm run build -w lumen -- --base "/${{ github.event.repository.name }}/lumen/"
+
+      - name: Assemble site
+        run: |
+          rm -rf _site && mkdir -p _site/lumen
+          cp -r apps/gallery/dist/* _site/
+          cp -r apps/lumen/dist/* _site/lumen/
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/lumen/dist
+          path: _site
 
   deploy:
     needs: build
