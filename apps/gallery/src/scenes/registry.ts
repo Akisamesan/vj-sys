@@ -20,6 +20,10 @@ import { createMandelbrot } from "./mandelbrot.ts";
 import { createAurora } from "./aurora.ts";
 import { createAttractor } from "./attractor.ts";
 import { createRings } from "./rings.ts";
+import { createSlime } from "./slime.ts";
+import { createMandelbulb } from "./mandelbulb.ts";
+import { createTruchet } from "./truchet.ts";
+import { createOscilloscope } from "./oscilloscope.ts";
 
 interface Entry {
   no: string;
@@ -100,11 +104,26 @@ const E: (Entry | Planned)[] = [
   ["13", "LIFE", "cellular", "ライフゲーム/Larger-than-Life。発火で新しいコロニーが芽吹く。"],
   ["14", "BZ", "reaction-diffusion", "Belousov-Zhabotinskyの化学振動。螺旋波が脈打つ。"],
   ["15", "CYCLIC", "cellular", "巡回セルオートマトン。色相の渦巻きが自己組織化する。"],
-  ["16", "SLIME", "particles", "粘菌(physarum)のネットワーク。フェロモン跡が音で枝分かれ。"],
+  {
+    no: "16",
+    title: "SLIME",
+    family: "particles",
+    blurb:
+      "粘菌(Physarum)シミュレーション。約10万のエージェントがフェロモン跡を嗅ぎ取り堆積させ、拡散・減衰しながら生きた輸送ネットワークへ自己組織化する。低域が速度と堆積、高域がセンサー角、キックで散乱する。",
+    create: createSlime,
+    keys: "[R] reseed",
+  },
   ["17", "WAVES", "simulation", "波動方程式の水面。ビートが波紋を落とす。"],
   ["18", "SAND", "cellular", "落下する砂。帯域ウォーカーが粒を積み、キックで崩す。"],
   ["19", "DLA", "simulation", "拡散律速凝集。雷状・珊瑚状の結晶が音で成長する。"],
-  ["20", "MANDELBULB", "raymarch", "3Dフラクタル・マンデルバルブ。powが音で脈動。"],
+  {
+    no: "20",
+    title: "MANDELBULB",
+    family: "raymarch",
+    blurb:
+      "古典3DフラクタルのマンデルバルブをDEレイマーチ。べき指数が低域で呼吸して開閉し、カメラが周回、重心が虹色の陰影、キックが表面を閃かせる。",
+    create: createMandelbulb,
+  },
   ["21", "MENGER", "raymarch", "メンガーのスポンジを無限ズーム。低域で反復が増える。"],
   {
     no: "22",
@@ -145,7 +164,14 @@ const E: (Entry | Planned)[] = [
       "セルラー・ボロノイの破砕。各セルが色付きの硝子片になり、音圧で漂い、高域で輪郭が鋭くなり、キックで全体が割れて色相が回る。",
     create: createVoronoi,
   },
-  ["33", "TRUCHET", "fragment", "トルーシェ・タイルの織り。拍でパターンが組み変わる。"],
+  {
+    no: "33",
+    title: "TRUCHET",
+    family: "fragment",
+    blurb:
+      "流れるトルーシェの織り。各セルが四分円弧をランダムに置き、線が編み合って無限の迷路状ループになる。帯域が線幅と発光、場が回転・スクロールし、キックでセルの帯が反転する。",
+    create: createTruchet,
+  },
   ["34", "HEXGRID", "fragment", "六角セルの脈動。帯域がセルを点灯。"],
   ["35", "DOMAINWARP", "fragment", "fBmのドメインワープ。流体的なマーブル模様。"],
   ["36", "CAUSTICS", "fragment", "水面のコースティクス。光の網が揺らぐ。"],
@@ -185,7 +211,14 @@ const E: (Entry | Planned)[] = [
       "データモッシュのフィードバック。前フレームがブロック変位とチャンネルずれで還流し、スペクトラムの帯が色を注入。スネアとキックで画面が裂け、反転・走査線が走る。",
     create: createGlitch,
   },
-  ["52", "OSCILLOSCOPE", "scan", "オシロスコープ表示。波形がそのまま線になる。"],
+  {
+    no: "52",
+    title: "OSCILLOSCOPE",
+    family: "scan",
+    blurb:
+      "CRTベクトルスコープ。生の音声波形を発光するリン光のリングに巻きつけ(半径=信号)、音そのものが描く軌跡を見る。低域がリングを膨らませ、levelがビームを輝かせ、重心がリン光を染める。",
+    create: createOscilloscope,
+  },
   ["53", "SCOPE_XY", "scan", "X-Yリサジュー・スコープ。ステレオ的に揺れる。"],
   ["54", "TYPO", "typography", "キネティック・タイポグラフィ。語が拍で結晶化。"],
   ["55", "SLITSCAN", "glitch", "スリットスキャン。時間が空間に引き伸ばされる。"],

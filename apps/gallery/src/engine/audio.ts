@@ -11,6 +11,8 @@ import { DemoLoop } from "./demo.ts";
 
 /** Number of log-spaced spectrum bands handed to the GPU. */
 export const BAND_COUNT = 24;
+/** Number of time-domain samples exposed for oscilloscope-style scenes. */
+export const WAVE_SIZE = 512;
 
 // One adaptive onset detector. Keeps a short ring of recent flux values and fires
 // when the newest value pops above mean + sensitivity*std, respecting a refractory
@@ -76,6 +78,9 @@ export class AudioEngine {
   level = 0;
   // Log-spaced spectrum for the renderer, smoothed.
   readonly spectrum = new Float32Array(BAND_COUNT);
+  // Time-domain waveform, normalised to -1..1 (for scopes).
+  readonly wave = new Float32Array(WAVE_SIZE);
+  private timeBuf = new Uint8Array(0);
 
   // Spectral descriptors.
   centroid = 0.3; // 0..1 normalised brightness
@@ -136,6 +141,7 @@ export class AudioEngine {
     this.an = an;
     this.freq = new Uint8Array(an.frequencyBinCount);
     this.prev = new Uint8Array(an.frequencyBinCount);
+    this.timeBuf = new Uint8Array(an.fftSize);
     this.running = true;
   }
 
@@ -143,6 +149,9 @@ export class AudioEngine {
     if (!this.running || !this.an || !this.ctx) return;
     this.prev.set(this.freq);
     this.an.getByteFrequencyData(this.freq);
+    this.an.getByteTimeDomainData(this.timeBuf);
+    const step = this.timeBuf.length / WAVE_SIZE;
+    for (let i = 0; i < WAVE_SIZE; i++) this.wave[i] = (this.timeBuf[(i * step) | 0] - 128) / 128;
     const n = this.freq.length;
     const binHz = this.ctx.sampleRate / 2 / n;
     const t = this.ctx.currentTime;
