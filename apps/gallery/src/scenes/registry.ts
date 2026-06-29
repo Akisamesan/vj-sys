@@ -12,6 +12,22 @@ import { createTerrain } from "./terrain.ts";
 import { createVoronoi } from "./voronoi.ts";
 import { createBars } from "./bars.ts";
 import { createMatrix } from "./matrix.ts";
+import { createFluid } from "./fluid.ts";
+import { createClouds } from "./clouds.ts";
+import { createGlitch } from "./glitch.ts";
+import { createSpectrogram } from "./spectrogram.ts";
+import { createMandelbrot } from "./mandelbrot.ts";
+import { createAurora } from "./aurora.ts";
+import { createAttractor } from "./attractor.ts";
+import { createRings } from "./rings.ts";
+import { createSlime } from "./slime.ts";
+import { createMandelbulb } from "./mandelbulb.ts";
+import { createTruchet } from "./truchet.ts";
+import { createOscilloscope } from "./oscilloscope.ts";
+import { createBoids } from "./boids.ts";
+import { createCaustics } from "./caustics.ts";
+import { createPlatonic } from "./platonic.ts";
+import { createCymatics } from "./cymatics.ts";
 
 interface Entry {
   no: string;
@@ -70,13 +86,22 @@ const E: (Entry | Planned)[] = [
   },
 
   // ---- roadmap (planned) ----
-  ["06", "FLUID", "fluids", "安定流体(Navier-Stokes)の煙。ビートが力と染料を注入する有機的な渦。"],
-  [
-    "07",
-    "BOIDS",
-    "particles",
-    "群れの飛翔(ボイド)。整列・結合・分離が音圧で揺らぐマーマレーション。",
-  ],
+  {
+    no: "06",
+    title: "FLUID",
+    family: "fluids",
+    blurb:
+      "本物の安定流体ソルバ(移流＋ヤコビ圧力射影)が色染料を押し流す。底のエミッタが煙を吹き上げ、帯域が渦を巻き、キックごとに明るい渦が炸裂する。",
+    create: createFluid,
+  },
+  {
+    no: "07",
+    title: "BOIDS",
+    family: "particles",
+    blurb:
+      "3Dのマーマレーション。Reynoldsの群れ(分離・整列・結合)が低域で速まり、高域で旋回が締まり、キックで散り、重心が色づく。周回カメラが奥行きを見せる。",
+    create: createBoids,
+  },
   ["08", "NBODY", "particles", "重力多体シミュレーションの銀河。低域が重力、キックで星が散る。"],
   ["09", "RIBBONS", "particles", "カールノイズ場を流れる無数のリボン。帯域で太さと色が変わる。"],
   ["10", "VERLET", "physics", "Verletの紐と布。ビートで張力が走り、波打つ。"],
@@ -85,11 +110,26 @@ const E: (Entry | Planned)[] = [
   ["13", "LIFE", "cellular", "ライフゲーム/Larger-than-Life。発火で新しいコロニーが芽吹く。"],
   ["14", "BZ", "reaction-diffusion", "Belousov-Zhabotinskyの化学振動。螺旋波が脈打つ。"],
   ["15", "CYCLIC", "cellular", "巡回セルオートマトン。色相の渦巻きが自己組織化する。"],
-  ["16", "SLIME", "particles", "粘菌(physarum)のネットワーク。フェロモン跡が音で枝分かれ。"],
+  {
+    no: "16",
+    title: "SLIME",
+    family: "particles",
+    blurb:
+      "粘菌(Physarum)シミュレーション。約10万のエージェントがフェロモン跡を嗅ぎ取り堆積させ、拡散・減衰しながら生きた輸送ネットワークへ自己組織化する。低域が速度と堆積、高域がセンサー角、キックで散乱する。",
+    create: createSlime,
+    keys: "[R] reseed",
+  },
   ["17", "WAVES", "simulation", "波動方程式の水面。ビートが波紋を落とす。"],
   ["18", "SAND", "cellular", "落下する砂。帯域ウォーカーが粒を積み、キックで崩す。"],
   ["19", "DLA", "simulation", "拡散律速凝集。雷状・珊瑚状の結晶が音で成長する。"],
-  ["20", "MANDELBULB", "raymarch", "3Dフラクタル・マンデルバルブ。powが音で脈動。"],
+  {
+    no: "20",
+    title: "MANDELBULB",
+    family: "raymarch",
+    blurb:
+      "古典3DフラクタルのマンデルバルブをDEレイマーチ。べき指数が低域で呼吸して開閉し、カメラが周回、重心が虹色の陰影、キックが表面を閃かせる。",
+    create: createMandelbulb,
+  },
   ["21", "MENGER", "raymarch", "メンガーのスポンジを無限ズーム。低域で反復が増える。"],
   {
     no: "22",
@@ -101,12 +141,26 @@ const E: (Entry | Planned)[] = [
   },
   ["23", "METABALLS", "raymarch", "レイマーチのメタボール。ビートで分裂・融合。"],
   ["24", "GYROID", "raymarch", "ジャイロイド(TPMS)曲面の内部を進む。"],
-  ["25", "CLOUDS", "raymarch", "ボリュメトリック雲。光芒が音で差す。"],
+  {
+    no: "25",
+    title: "CLOUDS",
+    family: "raymarch",
+    blurb:
+      "高度のボリュメトリック雲。レイマーチした濃度場を太陽が照らし、低域が雲量を厚くし、重心が空と陽を染め、キックが雲の中で稲妻を閃かせる。",
+    create: createClouds,
+  },
   ["26", "OCEAN", "raymarch", "Gerstner波の海。うねりが低域で高まる。"],
   ["27", "CITY", "raymarch", "手続き型スカイラインのドライブ。ネオンが拍で点滅。"],
   ["28", "KIFS", "raymarch", "万華鏡IFSフラクタル。折り畳みが音で変形。"],
   ["29", "APOLLONIAN", "raymarch", "アポロニウスの球充填。重心で半径が変わる。"],
-  ["30", "MANDELBROT", "fragment", "マンデルブロ/ジュリアのモーフ・ズーム。"],
+  {
+    no: "30",
+    title: "MANDELBROT",
+    family: "fragment",
+    blurb:
+      "生きたジュリア集合。定数cが音に沿って動き、塵→渦巻き→樹状へと絶えずモーフ。levelが呼吸するズーム、重心が配色、高域が細部を増やす。連続反復彩色。",
+    create: createMandelbrot,
+  },
   ["31", "PLASMA", "fragment", "古典プラズマ。正弦の重ね合わせが帯域で波打つ。"],
   {
     no: "32",
@@ -116,10 +170,24 @@ const E: (Entry | Planned)[] = [
       "セルラー・ボロノイの破砕。各セルが色付きの硝子片になり、音圧で漂い、高域で輪郭が鋭くなり、キックで全体が割れて色相が回る。",
     create: createVoronoi,
   },
-  ["33", "TRUCHET", "fragment", "トルーシェ・タイルの織り。拍でパターンが組み変わる。"],
+  {
+    no: "33",
+    title: "TRUCHET",
+    family: "fragment",
+    blurb:
+      "流れるトルーシェの織り。各セルが四分円弧をランダムに置き、線が編み合って無限の迷路状ループになる。帯域が線幅と発光、場が回転・スクロールし、キックでセルの帯が反転する。",
+    create: createTruchet,
+  },
   ["34", "HEXGRID", "fragment", "六角セルの脈動。帯域がセルを点灯。"],
   ["35", "DOMAINWARP", "fragment", "fBmのドメインワープ。流体的なマーブル模様。"],
-  ["36", "CAUSTICS", "fragment", "水面のコースティクス。光の網が揺らぐ。"],
+  {
+    no: "36",
+    title: "CAUSTICS",
+    family: "fragment",
+    blurb:
+      "プール底で踊る光。層状の動的セルノイズが明るいコースティクスの網を編み、levelが流れを速め、低域が水の色を深め、高域がフィラメントを鋭くし、キックで波紋が走る。",
+    create: createCaustics,
+  },
   ["37", "INTERFERENCE", "fragment", "波の干渉縞。複数音源が拍で動く。"],
   ["38", "PHYLLOTAXIS", "fragment", "葉序の螺旋ドット。重心で開度が変わる。"],
   ["39", "GABOR", "fragment", "ガボールノイズの縞。方位が帯域で回る。"],
@@ -134,7 +202,14 @@ const E: (Entry | Planned)[] = [
   ["41", "TORUS", "geometry", "結ばれたチューブ(トーラス結び)。音で捻れる。"],
   ["42", "LISSAJOUS", "geometry", "3Dリサジュー曲線。周波数比が音で動く。"],
   ["43", "SUPERSHAPE", "geometry", "スーパーフォーミュラのモーフ。"],
-  ["44", "PLATONIC", "geometry", "回転する正多面体のワイヤー。拍で切替。"],
+  {
+    no: "44",
+    title: "PLATONIC",
+    family: "geometry",
+    blurb:
+      "回転する正多面体のワイヤーフレーム。ネオンの檻(正四面体→立方体→正八面体→正二十面体)が宙で回り、levelが回転、低域がスケールを脈打たせ、noveltyで次の立体へ切替わる。",
+    create: createPlatonic,
+  },
   ["45", "RIBBONTRAIL", "geometry", "音に追従するリボンの軌跡。"],
   ["46", "LATTICE", "geometry", "変形する3D格子。低域で歪む。"],
   ["47", "SPHEREFIELD", "geometry", "インスタンス球の場。帯域で隆起。"],
@@ -148,8 +223,22 @@ const E: (Entry | Planned)[] = [
       "落下するグリフの雨。列ごとに輝く先頭と尾を引く軌跡が流れ、低域で雨脚が速まり、重心が色を染め、キックがランダムな列にバーストを走らせる。",
     create: createMatrix,
   },
-  ["51", "GLITCH", "glitch", "データモッシュの帯。発火でブロックがずれる。"],
-  ["52", "OSCILLOSCOPE", "scan", "オシロスコープ表示。波形がそのまま線になる。"],
+  {
+    no: "51",
+    title: "GLITCH",
+    family: "glitch",
+    blurb:
+      "データモッシュのフィードバック。前フレームがブロック変位とチャンネルずれで還流し、スペクトラムの帯が色を注入。スネアとキックで画面が裂け、反転・走査線が走る。",
+    create: createGlitch,
+  },
+  {
+    no: "52",
+    title: "OSCILLOSCOPE",
+    family: "scan",
+    blurb:
+      "CRTベクトルスコープ。生の音声波形を発光するリン光のリングに巻きつけ(半径=信号)、音そのものが描く軌跡を見る。低域がリングを膨らませ、levelがビームを輝かせ、重心がリン光を染める。",
+    create: createOscilloscope,
+  },
   ["53", "SCOPE_XY", "scan", "X-Yリサジュー・スコープ。ステレオ的に揺れる。"],
   ["54", "TYPO", "typography", "キネティック・タイポグラフィ。語が拍で結晶化。"],
   ["55", "SLITSCAN", "glitch", "スリットスキャン。時間が空間に引き伸ばされる。"],
@@ -159,7 +248,14 @@ const E: (Entry | Planned)[] = [
   ["59", "STROBE", "light", "ストロボ・パターン。発火で明滅。"],
   ["60", "BOKEH", "light", "デフォーカスの光球。低域で被写界が呼吸。"],
   ["61", "PRISM", "light", "プリズム分光。白色が虹に割れる。"],
-  ["62", "AURORA", "light", "カーテン状オーロラ。高域で揺らめく。"],
+  {
+    no: "62",
+    title: "AURORA",
+    family: "light",
+    blurb:
+      "星空にかかるオーロラのカーテン。fBmのリボンが波打ち、低域がカーテンを持ち上げ、高域が揺らめかせ、重心が緑↔紫の色相を動かし、キックが光の波を走らせる。",
+    create: createAurora,
+  },
   ["63", "GODRAYS", "light", "放射状の光芒。重心で射す方向が変わる。"],
   ["64", "NEONSIGN", "light", "明滅するネオン管。拍で点灯シーケンス。"],
   ["65", "KALEIDO_FB", "feedback", "フィードバック万華鏡。再帰像が回転対称に。"],
@@ -175,7 +271,14 @@ const E: (Entry | Planned)[] = [
   ["75", "FLAG", "physics", "風になびく旗。突風が拍で吹く。"],
   ["76", "PENDULUM", "physics", "カオス二重振り子の群れ。軌跡が描かれる。"],
   ["77", "SPRINGMESH", "physics", "質点ばねメッシュ。発火で波が走る。"],
-  ["78", "ATTRACTOR", "strange", "ローレンツ/アイザワのストレンジアトラクタ。"],
+  {
+    no: "78",
+    title: "ATTRACTOR",
+    family: "strange",
+    blurb:
+      "ローレンツのストレンジアトラクタを点群で。数千の粒子がカオス流に乗って蝶を描き、低域が翼(ρ)を広げ、levelが視点を回し、重心が雲を染める。",
+    create: createAttractor,
+  },
   ["79", "ROSSLER", "strange", "レスラー・アトラクタの軌道。"],
   ["80", "CLIFFORD", "strange", "クリフォード・アトラクタの点雲。"],
   ["81", "FIELDLINES", "fragment", "ベクトル場の流線。音で渦が動く。"],
@@ -186,13 +289,34 @@ const E: (Entry | Planned)[] = [
   ["86", "STAINED", "pattern", "ステンドグラス状ボロノイ。光が透ける。"],
   ["87", "CIRCUIT", "pattern", "PCBの配線が音で引かれていく。"],
   ["88", "MAZE", "pattern", "成長する迷路。拍で経路が伸びる。"],
-  ["89", "SPECTROGRAM", "spectral", "スクロールするスペクトログラムの滝。"],
+  {
+    no: "89",
+    title: "SPECTROGRAM",
+    family: "spectral",
+    blurb:
+      "スクロールするスペクトログラムの滝。毎フレーム右端に最新の周波数列を書き、履歴が左へ流れる。音の直近の過去がヒートマップとして見える。重心で配色、キックで先頭が輝く。",
+    create: createSpectrogram,
+  },
   ["90", "RADIAL_EQ", "spectral", "放射スペクトラムの開花。"],
   ["91", "TERRAIN_FFT", "spectral", "スペクトラムが地形になり前進する。"],
   ["92", "PARTICLE_FFT", "spectral", "パーティクルで作るバーグラフ。"],
   ["93", "MANDALA", "spectral", "対称マンダラにスペクトラムを写す。"],
-  ["94", "CYMATICS", "spectral", "クラドニ図形(振動板)。帯域で節が動く。"],
-  ["95", "RINGS", "spectral", "同心円のビートリング。"],
+  {
+    no: "94",
+    title: "CYMATICS",
+    family: "spectral",
+    blurb:
+      "クラドニの振動板。定在波モード(m,n)が干渉し、板が静止する節線に砂が集まって対称図形を描く。帯域がモード数を駆動して模様が再構成され、キックで板が鳴り、重心が砂を染める。",
+    create: createCymatics,
+  },
+  {
+    no: "95",
+    title: "RINGS",
+    family: "spectral",
+    blurb:
+      "同心ビートリング＋放射イコライザー。スペクトラムが円周に巻きつき(角度=周波数)、ラウドな帯域が外へ膨らみ、キックごとに明るい衝撃波リングが縁まで広がる。",
+    create: createRings,
+  },
   ["96", "TYPO_FIELD", "spectral", "エネルギー場CA上に文字が現れる。"],
   ["97", "KNOT", "geometry", "音で変形するトーラス結び目。"],
   ["98", "BLACKHOLE", "raymarch", "重力レンズのブラックホール。降着円盤が脈動。"],
