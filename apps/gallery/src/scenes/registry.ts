@@ -32,6 +32,10 @@ import { createPlasma } from "./plasma.ts";
 import { createHexgrid } from "./hexgrid.ts";
 import { createDomainwarp } from "./domainwarp.ts";
 import { createInterference } from "./interference.ts";
+import { createMenger } from "./menger.ts";
+import { createMetaballs } from "./metaballs.ts";
+import { createGyroid } from "./gyroid.ts";
+import { createApollonian } from "./apollonian.ts";
 
 interface Entry {
   no: string;
@@ -134,7 +138,14 @@ const E: (Entry | Planned)[] = [
       "古典3DフラクタルのマンデルバルブをDEレイマーチ。べき指数が低域で呼吸して開閉し、カメラが周回、重心が虹色の陰影、キックが表面を閃かせる。",
     create: createMandelbulb,
   },
-  ["21", "MENGER", "raymarch", "メンガーのスポンジを無限ズーム。低域で反復が増える。"],
+  {
+    no: "21",
+    title: "MENGER",
+    family: "raymarch",
+    blurb:
+      "折り畳み距離推定でレイマーチするメンガーのスポンジ。周回カメラで回転し、levelが公転と自転を速め、低域がカメラを引き寄せ折り目を脈動させ、重心が配色、高域が鏡面、キックが表面を閃かせる。",
+    create: createMenger,
+  },
   {
     no: "22",
     title: "TERRAIN",
@@ -143,8 +154,22 @@ const E: (Entry | Planned)[] = [
       "稜線地形を低空飛行するレイマーチ。低域が山を隆起させ、スペクトルが起伏を波打たせ、重心が空と陽の配色を、キックが稜線の発光を脈打たせる。",
     create: createTerrain,
   },
-  ["23", "METABALLS", "raymarch", "レイマーチのメタボール。ビートで分裂・融合。"],
-  ["24", "GYROID", "raymarch", "ジャイロイド(TPMS)曲面の内部を進む。"],
+  {
+    no: "23",
+    title: "METABALLS",
+    family: "raymarch",
+    blurb:
+      "smooth-minで融合する6つの有機的メタボールをレイマーチ。低域が融合の粘りを深め、キックで球が外へ散り、帯域が各球の半径を脈打たせ、重心が虹色の配色、高域がフレネルと鏡面を鋭くする。",
+    create: createMetaballs,
+  },
+  {
+    no: "24",
+    title: "GYROID",
+    family: "raymarch",
+    blurb:
+      "終わりなきジャイロイド(TPMS)格子をカメラが前進飛行する。低域がセル密度を詰めて脈動させ、levelが飛行速度、高域が壁を薄く鋭くし、重心が玉虫色のパレットを染め、キックが面を閃かせる。",
+    create: createGyroid,
+  },
   {
     no: "25",
     title: "CLOUDS",
@@ -156,7 +181,14 @@ const E: (Entry | Planned)[] = [
   ["26", "OCEAN", "raymarch", "Gerstner波の海。うねりが低域で高まる。"],
   ["27", "CITY", "raymarch", "手続き型スカイラインのドライブ。ネオンが拍で点滅。"],
   ["28", "KIFS", "raymarch", "万華鏡IFSフラクタル。折り畳みが音で変形。"],
-  ["29", "APOLLONIAN", "raymarch", "アポロニウスの球充填。重心で半径が変わる。"],
+  {
+    no: "29",
+    title: "APOLLONIAN",
+    family: "raymarch",
+    blurb:
+      "アポロニウスの球充填フラクタルをレイマーチ(IQ)。空間に無限入れ子の球が詰まり、重心が折り畳みスケールを変えて充填密度を作り替え、低域が構造を手前へ脈動させ、levelが周回、キックが表面を閃かせる。",
+    create: createApollonian,
+  },
   {
     no: "30",
     title: "MANDELBROT",
