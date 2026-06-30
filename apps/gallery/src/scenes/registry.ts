@@ -28,6 +28,10 @@ import { createBoids } from "./boids.ts";
 import { createCaustics } from "./caustics.ts";
 import { createPlatonic } from "./platonic.ts";
 import { createCymatics } from "./cymatics.ts";
+import { createPlasma } from "./plasma.ts";
+import { createHexgrid } from "./hexgrid.ts";
+import { createDomainwarp } from "./domainwarp.ts";
+import { createInterference } from "./interference.ts";
 
 interface Entry {
   no: string;
@@ -161,7 +165,14 @@ const E: (Entry | Planned)[] = [
       "生きたジュリア集合。定数cが音に沿って動き、塵→渦巻き→樹状へと絶えずモーフ。levelが呼吸するズーム、重心が配色、高域が細部を増やす。連続反復彩色。",
     create: createMandelbrot,
   },
-  ["31", "PLASMA", "fragment", "古典プラズマ。正弦の重ね合わせが帯域で波打つ。"],
+  {
+    no: "31",
+    title: "PLASMA",
+    family: "fragment",
+    blurb:
+      "古典デモシーンのプラズマをスペクトル場として再構築。正弦波の重畳にsnoiseのドメインワープを混ぜた有機的な流れを鮮烈なパレットで彩る。levelが速度、低域がコントラスト、帯域が空間周波数を変調し、重心が色相、高域が微細な波紋、キックが中心から発光する。",
+    create: createPlasma,
+  },
   {
     no: "32",
     title: "VORONOI",
@@ -178,8 +189,22 @@ const E: (Entry | Planned)[] = [
       "流れるトルーシェの織り。各セルが四分円弧をランダムに置き、線が編み合って無限の迷路状ループになる。帯域が線幅と発光、場が回転・スクロールし、キックでセルの帯が反転する。",
     create: createTruchet,
   },
-  ["34", "HEXGRID", "fragment", "六角セルの脈動。帯域がセルを点灯。"],
-  ["35", "DOMAINWARP", "fragment", "fBmのドメインワープ。流体的なマーブル模様。"],
+  {
+    no: "34",
+    title: "HEXGRID",
+    family: "fragment",
+    blurb:
+      "脈動する六角セルのグリッド。各セルが周波数帯のエネルギーで点灯し(中心=低域、外周=高域)、低域でグリッドが呼吸し、キックごとに明るいリングがセルを走り抜け、高域が縁を細く鋭くし、重心が配色を染める。",
+    create: createHexgrid,
+  },
+  {
+    no: "35",
+    title: "DOMAINWARP",
+    family: "fragment",
+    blurb:
+      "Inigo-Quilez流のfBmドメインワープ。2段の歪みが場を自身へ折り込み、二度と繰り返さない液状マーブル/星雲を生む。levelが流れ、低域が乱流の深さ、変化が場の原点を漂わせ、重心が色相、高域がフィラメントを鋭くし、キックが発光する。",
+    create: createDomainwarp,
+  },
   {
     no: "36",
     title: "CAUSTICS",
@@ -188,7 +213,14 @@ const E: (Entry | Planned)[] = [
       "プール底で踊る光。層状の動的セルノイズが明るいコースティクスの網を編み、levelが流れを速め、低域が水の色を深め、高域がフィラメントを鋭くし、キックで波紋が走る。",
     create: createCaustics,
   },
-  ["37", "INTERFERENCE", "fragment", "波の干渉縞。複数音源が拍で動く。"],
+  {
+    no: "37",
+    title: "INTERFERENCE",
+    family: "fragment",
+    blurb:
+      "リップルタンク。6つの円形波源が同心円を放ち、その重ね合わせが動くモアレ干渉縞を描く。低域がリング密度、levelが伝播速度、帯域が各波源の振幅を脈打たせ、キックで波源が揺らぎ新たなリングが広がり、高域が縞を鋭くし、重心が配色を染める。",
+    create: createInterference,
+  },
   ["38", "PHYLLOTAXIS", "fragment", "葉序の螺旋ドット。重心で開度が変わる。"],
   ["39", "GABOR", "fragment", "ガボールノイズの縞。方位が帯域で回る。"],
   {
