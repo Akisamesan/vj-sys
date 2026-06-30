@@ -36,6 +36,10 @@ import { createMenger } from "./menger.ts";
 import { createMetaballs } from "./metaballs.ts";
 import { createGyroid } from "./gyroid.ts";
 import { createApollonian } from "./apollonian.ts";
+import { createGabor } from "./gabor.ts";
+import { createFieldlines } from "./fieldlines.ts";
+import { createRadialEq } from "./radialeq.ts";
+import { createMandala } from "./mandala.ts";
 
 interface Entry {
   no: string;
@@ -254,7 +258,14 @@ const E: (Entry | Planned)[] = [
     create: createInterference,
   },
   ["38", "PHYLLOTAXIS", "fragment", "葉序の螺旋ドット。重心で開度が変わる。"],
-  ["39", "GABOR", "fragment", "ガボールノイズの縞。方位が帯域で回る。"],
+  {
+    no: "39",
+    title: "GABOR",
+    family: "fragment",
+    blurb:
+      "ノイズが方位を操る配向ストライプ場。局所的に平行な帯が刷毛目/木目のように空間で渦巻く。低域が縞の密度、midが場全体の回転、levelがスクロール、高域が直交スパークルと稜線の鋭さ、重心が色相、キックが発光する。",
+    create: createGabor,
+  },
   {
     no: "40",
     title: "BARS",
@@ -345,7 +356,14 @@ const E: (Entry | Planned)[] = [
   },
   ["79", "ROSSLER", "strange", "レスラー・アトラクタの軌道。"],
   ["80", "CLIFFORD", "strange", "クリフォード・アトラクタの点雲。"],
-  ["81", "FIELDLINES", "fragment", "ベクトル場の流線。音で渦が動く。"],
+  {
+    no: "81",
+    title: "FIELDLINES",
+    family: "fragment",
+    blurb:
+      "動くノイズ流れ場の流線。各ピクセルが場に沿って前後に積分するLIC近似で、磁力線のように輝く流線が現れる。低域が渦の大きさと流線長、levelが流速、変化が渦を再編成し、高域が線を鋭くし、重心が色相、キックが発光する。",
+    create: createFieldlines,
+  },
   ["82", "WANG", "pattern", "ウォンタイルの非周期パターン。"],
   ["83", "PENROSE", "pattern", "ペンローズ・タイリング。拍で膨張。"],
   ["84", "GIRIH", "pattern", "ギリ(イスラム幾何)パターンの生成。"],
@@ -361,10 +379,24 @@ const E: (Entry | Planned)[] = [
       "スクロールするスペクトログラムの滝。毎フレーム右端に最新の周波数列を書き、履歴が左へ流れる。音の直近の過去がヒートマップとして見える。重心で配色、キックで先頭が輝く。",
     create: createSpectrogram,
   },
-  ["90", "RADIAL_EQ", "spectral", "放射スペクトラムの開花。"],
+  {
+    no: "90",
+    title: "RADIAL_EQ",
+    family: "spectral",
+    blurb:
+      "放射イコライザーの開花。24帯域が円周に巻きつき上下対称の花弁として咲き、各花弁の長さがその帯域のエネルギー。キックごとに同心リングが中心から広がり、低域でコアが脈動し、重心が配色、高域が花弁の先端を煌めかせる。",
+    create: createRadialEq,
+  },
   ["91", "TERRAIN_FFT", "spectral", "スペクトラムが地形になり前進する。"],
   ["92", "PARTICLE_FFT", "spectral", "パーティクルで作るバーグラフ。"],
-  ["93", "MANDALA", "spectral", "対称マンダラにスペクトラムを写す。"],
+  {
+    no: "93",
+    title: "MANDALA",
+    family: "spectral",
+    blurb:
+      "スペクトラムを同心リングの花弁に写す対称マンダラ。N回対称＋鏡映で各半径リングが帯域に対応し、そのエネルギーで花弁が開く。低域でマンダラが呼吸し、変化で対称数が組み替わり、高域がフィリグリーを細かくし、キックで中心の宝石が閃く。",
+    create: createMandala,
+  },
   {
     no: "94",
     title: "CYMATICS",
