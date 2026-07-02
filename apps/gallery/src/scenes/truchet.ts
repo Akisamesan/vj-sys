@@ -63,8 +63,7 @@ export function createTruchet(ctx: SceneContext): Scene {
       flip += ((audio.kick ? 1 : 0) - flip) * (1 - Math.exp(-dt * (audio.kick ? 30 : 3)));
       const scale = 5.0 + Math.sin(t * 0.08) * 1.5 + audio.bass * 1.5;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

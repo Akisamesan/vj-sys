@@ -121,8 +121,7 @@ export function createGlitch(ctx: SceneContext): Scene {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
 
       // copy b -> screen
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.useProgram(copy);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, b.tex);

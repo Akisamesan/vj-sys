@@ -46,7 +46,7 @@ export function createBoids(ctx: SceneContext): Scene {
   const { gl, tri } = ctx;
   const prog = program(gl, VS, FS);
   const u: Uniforms = uniforms(gl, prog);
-  const post = new PostFX(gl, tri);
+  const post = new PostFX(gl, tri, ctx.bindOutput);
   const vao = gl.createVertexArray()!;
   const vbo = gl.createBuffer()!;
   const px = new Float32Array(N * 3);

@@ -64,8 +64,7 @@ export function createVoronoi(ctx: SceneContext): Scene {
       hue += dt * (0.02 + audio.change * 0.2) + (audio.kick ? 0.05 : 0);
       const scale = 5.0 + Math.sin(t * 0.1) * 1.5 + audio.bass * 2.0;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

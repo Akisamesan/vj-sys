@@ -99,8 +99,7 @@ export function createDomainwarp(ctx: SceneContext): Scene {
       sx += Math.sin(t * 0.11 + audio.novelty * 1.1) * speed * dt;
       sy += Math.cos(t * 0.09 + audio.novelty * 0.7) * speed * dt;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

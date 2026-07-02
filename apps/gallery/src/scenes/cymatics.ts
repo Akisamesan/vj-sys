@@ -68,8 +68,7 @@ export function createCymatics(ctx: SceneContext): Scene {
       m2 += (tm2 - m2) * k;
       n2 += (tn2 - n2) * k;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

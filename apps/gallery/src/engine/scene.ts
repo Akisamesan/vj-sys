@@ -45,6 +45,11 @@ export interface SceneDef {
   href?: string;
   /** Per-scene HUD hint line (controls). */
   keys?: string;
+  /**
+   * Energy tier for the live director: 1 = calm/ambient (breakdowns),
+   * 2 = groove (default), 3 = peak (drops, high energy).
+   */
+  intensity?: 1 | 2 | 3;
   /** Factory. Absent => not yet implemented (planned). */
   create?: (ctx: SceneContext) => Scene;
 }

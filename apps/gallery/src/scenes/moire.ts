@@ -72,8 +72,7 @@ export function createMoire(ctx: SceneContext): Scene {
       }
       const zoom = 1.0 + 0.5 * Math.sin(t * 0.2) - audio.bass * 0.25;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

@@ -115,8 +115,7 @@ export function createMandala(ctx: SceneContext): Scene {
       }
       sym += (symTarget - sym) * (1 - Math.exp(-dt * 1.8));
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

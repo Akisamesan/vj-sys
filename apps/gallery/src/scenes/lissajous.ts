@@ -63,7 +63,7 @@ export function createLissajous(ctx: SceneContext): Scene {
   const { gl, tri } = ctx;
   const prog = program(gl, VS, FS);
   const u: Uniforms = uniforms(gl, prog);
-  const post = new PostFX(gl, tri);
+  const post = new PostFX(gl, tri, ctx.bindOutput);
 
   // Empty VAO — geometry is fully procedural via gl_VertexID
   const vao = gl.createVertexArray()!;

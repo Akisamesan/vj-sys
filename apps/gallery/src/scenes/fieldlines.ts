@@ -99,8 +99,7 @@ export function createFieldlines(ctx: SceneContext): Scene {
       // bass → streak length (longer steps = longer flow lines)
       const stepH = 0.028 + audio.bass * 0.042;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

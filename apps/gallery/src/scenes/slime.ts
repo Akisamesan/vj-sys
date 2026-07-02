@@ -150,15 +150,10 @@ export function createSlime(ctx: SceneContext): Scene {
   }
   seed();
 
-  let rw = 1,
-    rh = 1;
   let scatter = 0;
 
   return {
-    resize(w, h) {
-      rw = w;
-      rh = h;
-    },
+    resize() {},
     key(k) {
       if (k === "r") {
         seed();
@@ -226,8 +221,7 @@ export function createSlime(ctx: SceneContext): Scene {
       [trA, trB] = [trB, trA];
 
       // 4) display
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.useProgram(display);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, trA.tex);

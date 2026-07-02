@@ -112,8 +112,7 @@ export function createRadialEq(ctx: SceneContext): Scene {
       ringR += dt * (0.52 + audio.level * 0.38);
       if (ringR > 1.38) ringR = 0;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

@@ -113,8 +113,7 @@ export function createHexgrid(ctx: SceneContext): Scene {
       if (audio.kick) kickTime = t;
       const ringR = Math.max(0, (t - kickTime) * 0.65);
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

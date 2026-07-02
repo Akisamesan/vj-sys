@@ -135,8 +135,7 @@ export function createInterference(ctx: SceneContext): Scene {
       const freq = 8.0 + audio.bass * 18.0; // bass → ring density (tighter = more rings)
       const speed = 0.7 + audio.level * 2.8; // level → propagation speed
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

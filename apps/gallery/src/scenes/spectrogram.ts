@@ -105,8 +105,7 @@ export function createSpectrogram(ctx: SceneContext): Scene {
       [a, b] = [b, a];
 
       // display
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.useProgram(disp);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, a.tex);

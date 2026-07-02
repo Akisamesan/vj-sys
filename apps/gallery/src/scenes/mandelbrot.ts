@@ -70,8 +70,7 @@ export function createMandelbrot(ctx: SceneContext): Scene {
       const targetZoom = 1.5 - audio.level * 0.6 + Math.sin(t * 0.07) * 0.4;
       zoom += (targetZoom - zoom) * (1 - Math.exp(-dt * 1.2));
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

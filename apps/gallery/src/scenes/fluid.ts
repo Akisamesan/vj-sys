@@ -108,9 +108,7 @@ export function createFluid(ctx: SceneContext): Scene {
   const uDp: Uniforms = uniforms(gl, pDisp);
 
   let sw = 1,
-    sh = 1,
-    rw = 1,
-    rh = 1;
+    sh = 1;
   let velA: RT, velB: RT, dyeA: RT, dyeB: RT, div: RT, prsA: RT, prsB: RT;
 
   function rt(w: number, h: number): RT {
@@ -176,8 +174,6 @@ export function createFluid(ctx: SceneContext): Scene {
 
   return {
     resize(w, h) {
-      rw = w;
-      rh = h;
       sw = Math.max(8, w >> 1);
       sh = Math.max(8, h >> 1);
       alloc();
@@ -277,8 +273,7 @@ export function createFluid(ctx: SceneContext): Scene {
       [dyeA, dyeB] = [dyeB, dyeA];
 
       // 5) display
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.useProgram(pDisp);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, dyeA.tex);

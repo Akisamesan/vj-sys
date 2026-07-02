@@ -68,7 +68,7 @@ export function createClouds(ctx: SceneContext): Scene {
   const { gl, tri } = ctx;
   const prog = program(gl, FULLSCREEN_VS, FS);
   const u: Uniforms = uniforms(gl, prog);
-  const post = new PostFX(gl, tri);
+  const post = new PostFX(gl, tri, ctx.bindOutput);
   let rw = 1,
     rh = 1;
   let z = 0;

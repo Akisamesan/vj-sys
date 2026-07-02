@@ -55,7 +55,7 @@ export function createOscilloscope(ctx: SceneContext): Scene {
   const bg = program(gl, FULLSCREEN_VS, BG_FS);
   const u: Uniforms = uniforms(gl, prog);
   const uB: Uniforms = uniforms(gl, bg);
-  const post = new PostFX(gl, tri);
+  const post = new PostFX(gl, tri, ctx.bindOutput);
   const vao = gl.createVertexArray()!;
   const waveTex = texture(gl, WAVE_SIZE, 1, {
     internal: gl.R32F,

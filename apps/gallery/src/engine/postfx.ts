@@ -84,10 +84,12 @@ export class PostFX {
   private h = 1;
   private gl: WebGL2RenderingContext;
   private tri: WebGLVertexArrayObject;
+  private output: (() => void) | undefined;
 
-  constructor(gl: WebGL2RenderingContext, tri: WebGLVertexArrayObject) {
+  constructor(gl: WebGL2RenderingContext, tri: WebGLVertexArrayObject, output?: () => void) {
     this.gl = gl;
     this.tri = tri;
+    this.output = output;
     this.bright = program(gl, FULLSCREEN_VS, BRIGHT_FS);
     this.uBright = uniforms(gl, this.bright);
     this.blur = program(gl, FULLSCREEN_VS, BLUR_FS);
@@ -156,7 +158,7 @@ export class PostFX {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  /** Composite the HDR scene to the default framebuffer with bloom + grade. */
+  /** Composite the HDR scene to the scene's output target with bloom + grade. */
   draw(outW: number, outH: number, p: PostParams): void {
     const gl = this.gl;
     gl.disable(gl.BLEND);
@@ -170,8 +172,12 @@ export class PostFX {
     this.blurPass(this.b0a, this.b0b, this.b0a);
     this.blurPass(this.b0a, this.b1b, this.b1a);
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, outW, outH);
+    if (this.output) {
+      this.output();
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, outW, outH);
+    }
     gl.useProgram(this.comp);
     gl.bindVertexArray(this.tri);
     gl.activeTexture(gl.TEXTURE0);

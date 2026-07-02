@@ -85,8 +85,7 @@ export function createPlasma(ctx: SceneContext): Scene {
       rh = h;
     },
     frame(t, _dt, audio: AudioEngine) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.disable(gl.BLEND);
       gl.useProgram(prog);
       gl.bindVertexArray(tri);

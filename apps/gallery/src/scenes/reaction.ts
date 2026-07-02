@@ -186,8 +186,7 @@ export function createReaction(ctx: SceneContext): Scene {
         [fboA, fboB] = [fboB, fboA];
       }
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, rw, rh);
+      ctx.bindOutput();
       gl.useProgram(dispProg);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texA);

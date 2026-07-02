@@ -113,7 +113,7 @@ export function createPlatonic(ctx: SceneContext): Scene {
   const { gl, tri } = ctx;
   const prog = program(gl, VS, FS);
   const u: Uniforms = uniforms(gl, prog);
-  const post = new PostFX(gl, tri);
+  const post = new PostFX(gl, tri, ctx.bindOutput);
 
   const buffers = SOLIDS.map((v) => {
     const data = edgeBuffer(v);
