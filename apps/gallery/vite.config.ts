@@ -68,10 +68,47 @@ function renderSheet(r: SheetReport): string {
 <div class="grid">${cards}</div>`;
 }
 
+interface LiveSmoke {
+  seed: number;
+  shots: Array<{ t: number; dataUrl: string }>;
+  transitions: Array<{ t: number; kind: string; beats: number; from: string; to: string }>;
+}
+
 function qaReport(): Plugin {
   return {
     name: "vj-qa-report",
     configureServer(server) {
+      // Live-mode smoke test: canvas shots + the director's transition log.
+      server.middlewares.use("/__qa/live", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as LiveSmoke;
+            const dir = join(server.config.root, "qa-out");
+            mkdirSync(dir, { recursive: true });
+            for (const s of body.shots)
+              writeFileSync(
+                join(dir, `live-${s.t}s.jpg`),
+                Buffer.from(s.dataUrl.split(",")[1], "base64"),
+              );
+            writeFileSync(
+              join(dir, "live-report.json"),
+              JSON.stringify({ seed: body.seed, transitions: body.transitions }, null, 1),
+            );
+            res.setHeader("content-type", "application/json");
+            res.end('{"ok":true}');
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String(e));
+          }
+        });
+      });
       server.middlewares.use("/__qa/report", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;

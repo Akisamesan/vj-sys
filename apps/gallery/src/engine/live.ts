@@ -1,14 +1,24 @@
-// Live VJ mode: cycles through all implemented scenes in BPM-sync.
+// Live VJ mode v2: a generative auto-VJ.
 //
-// Counts kicks from AudioEngine and cuts to the next scene every N beats
-// (default 16, changeable to 4/8/32 via keys). The next scene is pre-built
-// halfway through the current interval so the cut frame is nearly free.
-// GLScope tracks every GL object each scene allocates and deletes them on cut,
-// preventing the VRAM exhaustion that would otherwise occur after a few scenes.
+// Two scene slots render into the Mixer's offscreen channels (via each scene's
+// ctx.bindOutput); the Director listens to the music and decides when to cut
+// (bar counts, novelty spikes, drops), what scene fits the current energy tier
+// and how to transition (crossfade / luma wipe / glitch / white-flash / zoom /
+// hard cut), all beat-synced. The standby scene is pre-built halfway through
+// the interval and only renders during the mix window, so steady-state GPU cost
+// stays one scene + one fullscreen composite. GLScope reclaims all GL objects
+// on every swap.
+//
+// URL params: ?live[&seed=N][&auto=demo|qa]  (auto=qa uses ScriptedAudio — no
+// gesture, deterministic decisions; used by the headless smoke test.)
 
 import { getContext, fullscreenTriangle, GLError } from "./gl.ts";
 import { AudioEngine } from "./audio.ts";
+import { ScriptedAudio } from "./scripted.ts";
 import { GLScope } from "./track.ts";
+import { Mixer } from "./mixer.ts";
+import { Director } from "./director.ts";
+import type { TransitionPlan } from "./director.ts";
 import { SCENES } from "../scenes/registry.ts";
 import type { SceneDef, Scene, SceneContext } from "./scene.ts";
 
@@ -20,17 +30,26 @@ function el<T extends HTMLElement>(html: string): T {
 
 type PlayableScene = SceneDef & Required<Pick<SceneDef, "create">>;
 
+interface Slot {
+  channel: 0 | 1;
+  scope: GLScope | null;
+  scene: Scene | null;
+  def: PlayableScene | null;
+}
+
 export function mountLive(): void {
   const app = document.querySelector<HTMLDivElement>("#app")!;
   app.innerHTML = "";
+
+  const params = new URLSearchParams(location.search);
+  const auto = params.get("auto"); // "demo" | "qa" | null
+  const seed = Number(params.get("seed")) || (Math.random() * 0xffffffff) >>> 0;
 
   const pool = SCENES.filter((s): s is PlayableScene => s.create !== undefined);
   if (!pool.length) {
     app.textContent = "実装済みシーンがありません。";
     return;
   }
-
-  const queue: PlayableScene[] = [...pool].sort(() => Math.random() - 0.5);
 
   const canvas = el<HTMLCanvasElement>(`<canvas id="gl"></canvas>`);
   const hud = el<HTMLDivElement>(`
@@ -42,14 +61,20 @@ export function mountLive(): void {
         &nbsp;<span class="k">INT</span>&nbsp;<span id="lInt">16</span>
         &nbsp;<span class="k">BAR</span>&nbsp;<span id="lBar">0/16</span>
       </div>
+      <div class="row">
+        <span class="k">NRG</span>&nbsp;<span id="lNrg">mid</span>
+        &nbsp;<span class="k">TRN</span>&nbsp;<span id="lTrn">--</span>
+        &nbsp;<span class="k">SEED</span>&nbsp;<span id="lSeed">--</span>
+      </div>
       <div class="live-meter"><span id="lMeter"></span></div>
-      <div class="k keys">[space/N] skip &nbsp;[P] pause &nbsp;[1-4] 4/8/16/32 &nbsp;[←] index &nbsp;[F] full &nbsp;[H] hud</div>
+      <div class="k keys">[space/N] skip [P] pause [1-4] 4/8/16/32 [G] glitch [S] strobe [M] fx [←] index [F] full [H] hud</div>
     </div>`);
   const overlay = el<HTMLDivElement>(`
     <div id="overlay">
       <a class="back" href="./">← gallery</a>
       <h1>VJ <span>LIVE</span></h1>
-      <p>実装済み ${pool.length} シーンを BPM に同期して自動ミックス。<br/><br/>
+      <p>実装済み ${pool.length} シーンを Director が自動ミックス。<br/>
+         エネルギー・ドロップ・展開を検出してカットとトランジションを決めます。<br/><br/>
          ※ マイクがブロックされる環境では「デモ音源」を使ってください。</p>
       <div class="btns">
         <button id="bMic">マイク入力で開始</button>
@@ -67,86 +92,117 @@ export function mountLive(): void {
   }
 
   const tri = fullscreenTriangle(gl);
-  const audio = new AudioEngine();
+  const mixer = new Mixer(gl, tri);
+  const director = new Director(seed);
+  const audio: AudioEngine = auto === "qa" ? new ScriptedAudio() : new AudioEngine();
 
   // Playback state
   let interval = 16;
   let paused = false;
-  let qi = 0;
   let beats = 0;
   let pending = false;
+  let forcedPlan: TransitionPlan | null = null;
   let prefetched = false;
   let lastCutT = 0;
 
-  // Current and next (prefetch) scene slots
-  let curScope: GLScope | null = null;
-  let curScene: Scene | null = null;
-  let curDef: PlayableScene = queue[0];
-  let nxtScope: GLScope | null = null;
-  let nxtScene: Scene | null = null;
-  let nxtDef: PlayableScene = queue[1 % queue.length];
+  // Transition state
+  let plan: TransitionPlan | null = null;
+  let progress = 0;
+
+  // Master FX
+  let fxOn = true;
+  let strobeT = 0;
+  let invertT = 0;
+
+  const program: Slot = { channel: 0, scope: null, scene: null, def: null };
+  const standby: Slot = { channel: 1, scope: null, scene: null, def: null };
+  let onAir = program;
+  let deck = standby;
 
   let rw = 1;
   let rh = 1;
 
-  function make(def: PlayableScene): { scope: GLScope; scene: Scene } | null {
+  function make(slot: Slot, def: PlayableScene): boolean {
+    slot.scope?.dispose();
+    slot.scope = null;
+    slot.scene = null;
+    slot.def = null;
     const scope = new GLScope(gl);
     try {
       const sctx: SceneContext = {
         gl,
         canvas,
         tri,
-        bindOutput: () => {
-          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-          gl.viewport(0, 0, rw, rh);
-        },
+        bindOutput: () => mixer.bindChannel(slot.channel),
       };
       const scene = scope.track(() => def.create(sctx));
       scope.track(() => scene.resize(rw, rh));
-      return { scope, scene };
+      slot.scope = scope;
+      slot.scene = scene;
+      slot.def = def;
+      return true;
     } catch (e) {
       console.error("[live]", def.id, e);
       scope.dispose();
-      return null;
+      return false;
     }
   }
 
+  /** Build the deck slot with the director's next pick (retries on broken scenes). */
   function prefetch(): void {
-    nxtDef = queue[(qi + 1) % queue.length];
-    if (nxtScene) return; // already ready
-    const r = make(nxtDef);
-    nxtScope = r?.scope ?? null;
-    nxtScene = r?.scene ?? null;
+    if (deck.scene) return;
+    for (let tries = 0; tries < 4; tries++) {
+      const def = director.pickNext(pool, onAir.def) as PlayableScene;
+      if (make(deck, def)) return;
+    }
   }
 
-  function cut(): void {
-    curScope?.dispose();
-    if (nxtScene) {
-      curScope = nxtScope;
-      curScene = nxtScene;
-      curDef = nxtDef;
-      qi = queue.indexOf(nxtDef);
-    } else {
-      qi = (qi + 1) % queue.length;
-      curDef = queue[qi];
-      const r = make(curDef);
-      curScope = r?.scope ?? null;
-      curScene = r?.scene ?? null;
-    }
-    nxtScope = null;
-    nxtScene = null;
+  /** Swap deck on air; the old program becomes the (empty) deck. */
+  function swap(): void {
+    onAir.scope?.dispose();
+    onAir.scope = null;
+    onAir.scene = null;
+    const t = onAir;
+    onAir = deck;
+    deck = t;
     beats = 0;
     pending = false;
+    forcedPlan = null;
     prefetched = false;
+    plan = null;
+    progress = 0;
     lastCutT = performance.now() / 1000;
+  }
+
+  /** Begin the planned transition (or hard-swap for cuts). */
+  function beginTransition(): void {
+    if (!deck.scene) prefetch();
+    if (!deck.scene) {
+      // Nothing playable to go to; reset the bar and try again next interval.
+      beats = 0;
+      pending = false;
+      return;
+    }
+    const p = forcedPlan ?? director.planTransition();
+    if (director.drop) strobeT = 0.9;
+    smokeLog(p.kind, p.beats);
+    if (p.kind === "cut" || p.beats <= 0) {
+      swap();
+      lTrn.textContent = "cut";
+      return;
+    }
+    plan = p;
+    progress = 0;
+    lTrn.textContent = `${p.kind} ${p.beats}b`;
   }
 
   const resize = (): void => {
     const dpr = Math.min(devicePixelRatio || 1, 1.75);
     canvas.width = rw = Math.floor(innerWidth * dpr);
     canvas.height = rh = Math.floor(innerHeight * dpr);
-    if (curScene && curScope) curScope.track(() => curScene!.resize(rw, rh));
-    if (nxtScene && nxtScope) nxtScope.track(() => nxtScene!.resize(rw, rh));
+    mixer.resize(rw, rh);
+    for (const s of [onAir, deck])
+      if (s.scene && s.scope) s.scope.track(() => s.scene!.resize(rw, rh));
   };
   addEventListener("resize", resize);
   resize();
@@ -156,11 +212,55 @@ export function mountLive(): void {
   const lBpm = hud.querySelector<HTMLSpanElement>("#lBpm")!;
   const lInt = hud.querySelector<HTMLSpanElement>("#lInt")!;
   const lBar = hud.querySelector<HTMLSpanElement>("#lBar")!;
+  const lNrg = hud.querySelector<HTMLSpanElement>("#lNrg")!;
+  const lTrn = hud.querySelector<HTMLSpanElement>("#lTrn")!;
+  const lSeed = hud.querySelector<HTMLSpanElement>("#lSeed")!;
   const lMeter = hud.querySelector<HTMLSpanElement>("#lMeter")!;
+  lSeed.textContent = String(seed);
 
   let lastT = 0;
   let started = false;
   let tick = 0;
+
+  // --- smoke-test hooks (auto=qa): capture shots at ?shots=<s,s,..> seconds and
+  // log every transition, then POST both to /__qa/live for the runner. ---
+  const shotTimes = (params.get("shots") ?? "")
+    .split(",")
+    .map(Number)
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b);
+  const shots: Array<{ t: number; dataUrl: string }> = [];
+  const transitions: Array<{ t: number; kind: string; beats: number; from: string; to: string }> =
+    [];
+  let smokeT = 0;
+  let smokePosted = false;
+  const smokeLog = (kind: string, beatsN: number): void => {
+    if (auto === "qa")
+      transitions.push({
+        t: Math.round(smokeT * 10) / 10,
+        kind,
+        beats: beatsN,
+        from: onAir.def?.id ?? "--",
+        to: deck.def?.id ?? "--",
+      });
+  };
+  const smokeTick = (dt: number): void => {
+    smokeT += dt;
+    if (shotTimes.length && smokeT >= shotTimes[0]) {
+      shotTimes.shift();
+      shots.push({ t: Math.round(smokeT * 10) / 10, dataUrl: canvas.toDataURL("image/jpeg", 0.8) });
+    }
+    if (!shotTimes.length && !smokePosted && shots.length) {
+      smokePosted = true;
+      void fetch("/__qa/live", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seed, shots, transitions }),
+      }).finally(() => {
+        document.title = "QA_DONE";
+      });
+    }
+  };
 
   const frame = (): void => {
     requestAnimationFrame(frame);
@@ -171,32 +271,64 @@ export function mountLive(): void {
     lastT = now;
 
     audio.update(dt);
-    curScene?.frame(now, dt, audio);
+    director.update(now, dt, audio);
 
     if (audio.kick) beats++;
 
-    // Prefetch next scene halfway through the interval
+    // --- cut scheduling ---
     if (!prefetched && beats >= Math.ceil(interval / 2)) {
       prefetched = true;
       prefetch();
     }
-
-    // Mark pending when beat count reached
     if (!pending && beats >= interval) pending = true;
-    // Fallback if BPM not detected: cut after 20 s
+    // Novelty section change: cut early once at least half a bar has passed.
+    if (!pending && !plan && director.section && beats >= 8) pending = true;
+    // BPM undetected fallback.
     if (!pending && now - lastCutT > 20) pending = true;
-    // Execute cut on downbeat or after 25 s absolute max
-    if (pending && (audio.beatPhase < 0.12 || now - lastCutT > 25)) cut();
+    // Drop: hit immediately, don't wait for the downbeat.
+    if (!plan && director.drop) {
+      pending = true;
+      beginTransition();
+    } else if (pending && !plan && (audio.beatPhase < 0.12 || now - lastCutT > 25)) {
+      beginTransition();
+    }
 
-    // HUD: meter every frame, text every 4 frames
+    // --- render ---
+    onAir.scene?.frame(now, dt, audio);
+    if (plan) {
+      deck.scene?.frame(now, dt, audio);
+      progress += (dt * ((audio.bpm || 120) / 60)) / plan.beats;
+    }
+
+    // Master FX values.
+    strobeT = Math.max(0, strobeT - dt);
+    invertT = Math.max(0, invertT - dt);
+    if (fxOn && director.section && director.tier === "high") invertT = 0.09;
+    const strobe = fxOn && strobeT > 0 && Math.floor(now * 14) % 2 === 0 ? 1 : 0;
+
+    mixer.composite(onAir.channel, deck.channel, {
+      kind: plan?.kind ?? "cut",
+      progress,
+      time: now,
+      kickPulse: fxOn ? audio.kickPulse : 0,
+      rgbShift: fxOn ? audio.snarePulse * 0.4 + audio.change * 0.15 : 0,
+      strobe,
+      invert: invertT > 0 ? 1 : 0,
+    });
+
+    if (plan && progress >= 1) swap();
+    if (auto === "qa") smokeTick(dt);
+
+    // --- HUD ---
     const prog = Math.min(1, (beats + audio.beatPhase) / Math.max(1, interval));
     lMeter.style.width = `${prog * 100}%`;
     if (++tick % 4 === 0) {
-      lNow.textContent = `${curDef.no} ${curDef.title}`;
-      lNxt.textContent = `${nxtDef.no} ${nxtDef.title}`;
+      lNow.textContent = onAir.def ? `${onAir.def.no} ${onAir.def.title}` : "--";
+      lNxt.textContent = deck.def ? `${deck.def.no} ${deck.def.title}` : "--";
       lBpm.textContent = audio.bpm ? String(audio.bpm) : "--";
       lInt.textContent = String(interval);
       lBar.textContent = `${beats}/${interval}`;
+      lNrg.textContent = director.breakdown ? "break" : director.tier;
     }
   };
 
@@ -204,11 +336,12 @@ export function mountLive(): void {
     overlay.style.display = "none";
     hud.classList.remove("hidden");
     lastCutT = performance.now() / 1000;
-    const r = make(curDef);
-    curScope = r?.scope ?? null;
-    curScene = r?.scene ?? null;
+    for (let tries = 0; tries < 4 && !onAir.scene; tries++) {
+      const def = director.pickNext(pool, null) as PlayableScene;
+      make(onAir, def);
+    }
     prefetch();
-    prefetched = true; // already done above
+    prefetched = true;
     if (!started) {
       started = true;
       requestAnimationFrame(frame);
@@ -228,10 +361,24 @@ export function mountLive(): void {
     begin();
   };
 
+  if (auto === "qa") {
+    begin();
+  } else if (auto === "demo") {
+    audio.initDemo();
+    begin();
+  }
+
   addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
     if (k === " " || k === "n") {
       if (started) pending = true;
+    } else if (k === "g") {
+      forcedPlan = { kind: "glitch", beats: 1 };
+      pending = true;
+    } else if (k === "s") {
+      strobeT = 0.9;
+    } else if (k === "m") {
+      fxOn = !fxOn;
     } else if (k === "p") {
       paused = !paused;
     } else if (k === "1") {
@@ -243,8 +390,9 @@ export function mountLive(): void {
     } else if (k === "4") {
       interval = 32;
     } else if (k === "arrowleft") {
-      curScope?.dispose();
-      nxtScope?.dispose();
+      onAir.scope?.dispose();
+      deck.scope?.dispose();
+      mixer.dispose();
       location.href = "./";
     } else if (k === "f") {
       if (document.fullscreenElement) void document.exitFullscreen();
