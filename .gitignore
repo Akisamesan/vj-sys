@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# QA harness output (apps/gallery/qa-out)
+qa-out
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

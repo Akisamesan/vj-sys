@@ -92,7 +92,15 @@ export function mountLive(): void {
   function make(def: PlayableScene): { scope: GLScope; scene: Scene } | null {
     const scope = new GLScope(gl);
     try {
-      const sctx: SceneContext = { gl, canvas, tri };
+      const sctx: SceneContext = {
+        gl,
+        canvas,
+        tri,
+        bindOutput: () => {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, rw, rh);
+        },
+      };
       const scene = scope.track(() => def.create(sctx));
       scope.track(() => scene.resize(rw, rh));
       return { scope, scene };

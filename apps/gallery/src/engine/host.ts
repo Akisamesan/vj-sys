@@ -71,9 +71,14 @@ export function mountScene(def: SceneDef): void {
   const audio = new AudioEngine();
   (globalThis as unknown as { vj: unknown }).vj = { audio, id: def.id };
 
+  const bindOutput = (): void => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  };
+
   let scene: Scene;
   try {
-    scene = def.create!({ gl, canvas, tri });
+    scene = def.create!({ gl, canvas, tri, bindOutput });
   } catch (e) {
     return fail(e instanceof GLError ? e.message : String(e));
   }

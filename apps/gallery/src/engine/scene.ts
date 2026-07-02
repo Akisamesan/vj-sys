@@ -10,6 +10,14 @@ export interface SceneContext {
   canvas: HTMLCanvasElement;
   /** A ready-to-use fullscreen-triangle VAO (bind + drawArrays(TRIANGLES,0,3)). */
   tri: WebGLVertexArrayObject;
+  /**
+   * Binds the scene's output target and sets the viewport. Scenes MUST call this
+   * for their final present pass instead of gl.bindFramebuffer(gl.FRAMEBUFFER, null):
+   * standalone it is the screen, but the live mixer points it at an offscreen
+   * channel so scenes can be crossfaded/blended. Kept as an arrow property so it
+   * can be passed detached (e.g. `new PostFX(gl, tri, ctx.bindOutput)`).
+   */
+  bindOutput: () => void;
 }
 
 export interface Scene {

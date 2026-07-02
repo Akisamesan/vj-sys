@@ -7,7 +7,10 @@ const params = new URLSearchParams(location.search);
 const sceneId = params.get("scene");
 const def = findScene(sceneId);
 
-if (params.has("live")) {
+const qa = params.get("qa");
+if (qa !== null) {
+  void import("./engine/qa.ts").then((m) => m.mountQA(qa));
+} else if (params.has("live")) {
   mountLive();
 } else if (def?.href) {
   location.href = def.href;

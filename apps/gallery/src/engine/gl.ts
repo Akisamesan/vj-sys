@@ -3,13 +3,17 @@
 
 export class GLError extends Error {}
 
-export function getContext(canvas: HTMLCanvasElement): WebGL2RenderingContext {
+export function getContext(
+  canvas: HTMLCanvasElement,
+  opts: WebGLContextAttributes = {},
+): WebGL2RenderingContext {
   const gl = canvas.getContext("webgl2", {
     antialias: false,
     alpha: false,
     depth: false,
     premultipliedAlpha: false,
     powerPreference: "high-performance",
+    ...opts,
   });
   if (!gl)
     throw new GLError("WebGL2 を初期化できませんでした。デスクトップブラウザでお試しください。");
