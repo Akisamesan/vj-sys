@@ -121,7 +121,15 @@ node qa/compare.mjs qa-out/baseline.json qa-out/report.json  # 回帰比較
 
 ブラウザで `?qa=<id>` を開けば同じ計測をインタラクティブに確認できる。
 Live のスモークは `?live&auto=qa&seed=42&shots=6,14,30` → `qa-out/live-*.jpg` と
-遷移ログ `live-report.json`。
+遷移ログ `live-report.json`(カットに加え blend-hold の `hold:*` イベントも記録。
+`auto=qa` は適格セグメントで hold を強制し FPS ガードを無効化するので決定論)。
+
+QA 実行後は Director 用プロファイル(blend-hold のペア選定に使う cost/luma)を
+再生成してコミットする:
+
+```sh
+node qa/profile.mjs   # qa-out/report.json → src/scenes/profile.gen.ts
+```
 
 ## スペック様式(ディレクター→実装者)
 
