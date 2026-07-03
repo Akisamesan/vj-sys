@@ -12,7 +12,7 @@ import type { AudioEngine } from "../engine/audio.ts";
 const FS = `#version 300 es
 precision highp float;
 ${COMMON_GLSL}
-uniform vec2 u_res; uniform float u_time, u_speed, u_sharp, u_centroid, u_bass, u_beat;
+uniform vec2 u_res; uniform float u_time, u_speed, u_sharp, u_centroid, u_bass, u_beat, u_seed;
 out vec4 o;
 
 // caustic web: domain-warped noise, bright where two ridges cross (robust, no Inf)
@@ -28,11 +28,16 @@ float caustic(vec2 p){
 void main(){
   vec2 uv = gl_FragCoord.xy / u_res;
   vec2 p = (uv - 0.5) * vec2(u_res.x/u_res.y, 1.0) * 6.0;
+  // seed macro: slide the noise domain to another patch of the caustic field
+  // (u_seed=0 → the unmodulated image, continuous so a drift reads as morphing)
+  p += vec2(u_seed*37.0, -u_seed*23.0);
+  float hue = 0.55 + u_centroid*0.2;
+  hue += u_seed*0.35;
   float c = caustic(p);
   c += caustic(p*1.4 + 10.0) * 0.5;            // second layer
   c *= 1.0 + u_beat*0.6;
 
-  vec3 water = palette(0.55 + u_centroid*0.2, vec3(0.1,0.3,0.4), vec3(0.1,0.2,0.3), vec3(1.0), vec3(0.2,0.4,0.5));
+  vec3 water = palette(hue, vec3(0.1,0.3,0.4), vec3(0.1,0.2,0.3), vec3(1.0), vec3(0.2,0.4,0.5));
   vec3 col = water * (0.15 + u_bass*0.2);
   col += vec3(0.7,0.95,1.0) * c * 1.4;
   col += water * c * 0.4;
@@ -48,8 +53,14 @@ export function createCaustics(ctx: SceneContext): Scene {
   const u: Uniforms = uniforms(gl, prog);
   let rw = 1,
     rh = 1;
+  let seed = 0;
 
   return {
+    macros: {
+      seed: (v) => {
+        seed = v;
+      },
+    },
     resize(w, h) {
       rw = w;
       rh = h;
@@ -66,6 +77,7 @@ export function createCaustics(ctx: SceneContext): Scene {
       gl.uniform1f(u.u_centroid, audio.centroid);
       gl.uniform1f(u.u_bass, audio.bass);
       gl.uniform1f(u.u_beat, audio.kickPulse);
+      gl.uniform1f(u.u_seed, seed);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     },
   };

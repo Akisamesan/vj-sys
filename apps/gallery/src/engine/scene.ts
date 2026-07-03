@@ -20,6 +20,14 @@ export interface SceneContext {
   bindOutput: () => void;
 }
 
+/**
+ * Standard macro names a scene may expose for external modulation (0..1 each):
+ * seed = which "face" of the scene (noise domain / palette phase offset),
+ * energy = overall intensity, hue = palette rotation, density = detail density,
+ * chaos = turbulence/disorder, zoom = camera/field scale.
+ */
+export type MacroName = "seed" | "energy" | "hue" | "density" | "chaos" | "zoom";
+
 export interface Scene {
   /** Called on mount and whenever the drawing buffer size changes. */
   resize(w: number, h: number): void;
@@ -27,6 +35,14 @@ export interface Scene {
   frame(t: number, dt: number, audio: AudioEngine): void;
   /** Optional key handling (single lowercased key). Return true if handled. */
   key?(k: string): boolean;
+  /**
+   * Optional macro receivers for external modulation (live director, QA sweeps).
+   * Opt-in: only expose macros the scene actually maps. Contract: values are 0..1;
+   * never calling a macro must leave the image bit-identical to a scene without
+   * macros (defaults preserve the unmodulated look); the mapping should be
+   * continuous so a slow drift reads as morphing, not cutting.
+   */
+  macros?: Partial<Record<MacroName, (v: number) => void>>;
   dispose?(): void;
 }
 

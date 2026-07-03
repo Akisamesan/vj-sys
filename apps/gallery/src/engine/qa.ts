@@ -42,6 +42,8 @@ export interface SceneReport {
   meanLuma: number;
   /** dataURLs: quiet / kick / loud */
   thumbs: string[];
+  /** Macro sweep dataURLs (scenes exposing macros.seed): seed 0.2 / 0.5 / 0.8. */
+  macroThumbs?: string[];
   error?: string;
 }
 
@@ -275,6 +277,30 @@ async function runQA(spec: string): Promise<void> {
         if (r.msPerFrame > 33) r.notes.push(`SLOW: ${r.msPerFrame.toFixed(1)}ms/frame`);
         if (r.notes.length) r.status = "warn";
       }
+
+      // Macro sweep: scenes exposing macros.seed render three faces for the
+      // sheet. Runs after all metric captures, so thumbs/metrics above stay
+      // bit-identical to a build without the sweep. Re-rendering at the same
+      // sim time isolates the seed effect from plain motion, so a small
+      // absolute threshold detects a dead macro reliably.
+      const setSeed = scene.macros?.seed;
+      if (setSeed) {
+        const face = (v: number): Capture => {
+          setSeed(v);
+          scene!.frame(simT, DT, audio);
+          return capture();
+        };
+        const sweep = [0.2, 0.5, 0.8].map(face);
+        r.macroThumbs = sweep.map((c) => c.url);
+        if (
+          r.status !== "error" &&
+          diff(sweep[0], sweep[1]) < 0.004 &&
+          diff(sweep[1], sweep[2]) < 0.004
+        ) {
+          r.notes.push("MACRO_DEAD: seed 掃引で画が変わらない");
+          r.status = "warn";
+        }
+      }
     } catch (e) {
       counting = false;
       r.status = "error";
@@ -321,7 +347,11 @@ function renderTable(root: HTMLElement, report: QAReport): void {
       (s) => `<tr>
       <td style="color:${color[s.status]}">${s.status.toUpperCase()}</td>
       <td>${s.no} ${s.title}</td>
-      <td>${s.thumbs.map((t) => `<img src="${t}" width="120" style="margin-right:4px"/>`).join("")}</td>
+      <td>${s.thumbs.map((t) => `<img src="${t}" width="120" style="margin-right:4px"/>`).join("")}${
+        s.macroThumbs
+          ? `<br/>${s.macroThumbs.map((t) => `<img src="${t}" width="120" style="margin-right:4px"/>`).join("")}`
+          : ""
+      }</td>
       <td>${s.msPerFrame.toFixed(1)}ms · kickΔ ${s.kickDelta.toFixed(4)} · nullBind ${s.directNullBinds}<br/>${s.notes.join("<br/>")}${s.error ? `<br/><span style="color:#f55">${s.error}</span>` : ""}</td>
     </tr>`,
     )

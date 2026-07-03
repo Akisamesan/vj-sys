@@ -22,9 +22,45 @@ interface Scene {
   resize(w, h): void; // マウント時+リサイズ時
   frame(t, dt, audio: AudioEngine): void; // 毎フレーム描画
   key?(k): boolean; // 任意: キー操作
+  macros?: Partial<Record<MacroName, (v: number) => void>>; // 任意: 外部変調(下記)
   dispose?(): void; // 通常不要(GLScopeが回収する)
 }
 ```
+
+### マクロ契約(外部変調・opt-in)
+
+`macros` はシーンを「固定映像」から「パラメトリックな楽器」にする任意の受け口。
+Live の Director と QA 掃引が外側から呼ぶ。**既存シーンは無改修で動く**(未実装なら省略)。
+
+```ts
+macros?: Partial<Record<MacroName, (v: number) => void>>; // 値は 0..1
+```
+
+| マクロ    | 意味                                                    |
+| --------- | ------------------------------------------------------- |
+| `seed`    | シーンの「顔」。ノイズドメイン/パレット位相のオフセット |
+| `energy`  | 全体強度(発光・振幅)                                    |
+| `hue`     | パレット回転                                            |
+| `density` | ディテール密度(セル数・粒子数の見かけ)                  |
+| `chaos`   | 乱流・無秩序度                                          |
+| `zoom`    | カメラ/フィールドのスケール                             |
+
+実装規則(QA の `MACRO_DEAD` と回帰比較が検証する):
+
+1. **未注入時は従来と同一の画**。uniform デフォルト 0 で無変調になる設計にする
+   (例: `p + vec2(u_seed*37.0, -u_seed*23.0)` は seed=0 で恒等)。
+2. **連続写像にする**。Live は seed を低速ドリフトさせるため、近い値→近い画
+   でないと画がカット的に飛ぶ。`hash(seed)` のような離散写像は禁止
+   (パン・位相・ドメインオフセットに写す)。
+3. 定石は `u_seed` uniform 1個: ドメインオフセット+パレット位相+軌道位相。
+   参照実装: `plasma.ts` / `truchet.ts` / `caustics.ts`。
+4. 状態を持つシーン(GPGPU)の seed は再シード=状態リセットになりがちなので、
+   表示系パラメータへの写像を優先する(ドリフト耐性のため)。
+
+Live の駆動: カット時に seed を注入し、再生中は ±0.012/s で 0..1 を反射
+ドリフト。QA は seed 対応シーンだけ 0.2/0.5/0.8 の3枚を `sheet.html` に出す。
+
+## bindOutput 契約
 
 **絶対規則: 最終描画パスでは `gl.bindFramebuffer(gl.FRAMEBUFFER, null)` を使わない。**
 代わりに `ctx.bindOutput()` を呼ぶ(bind+viewport を行う)。Live モードはこれで
