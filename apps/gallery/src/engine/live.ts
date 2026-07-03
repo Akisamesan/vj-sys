@@ -17,7 +17,7 @@ import { AudioEngine } from "./audio.ts";
 import { ScriptedAudio } from "./scripted.ts";
 import { GLScope } from "./track.ts";
 import { Mixer } from "./mixer.ts";
-import { Director } from "./director.ts";
+import { Director, mulberry32 } from "./director.ts";
 import type { TransitionPlan } from "./director.ts";
 import { SCENES } from "../scenes/registry.ts";
 import type { SceneDef, Scene, SceneContext } from "./scene.ts";
@@ -35,6 +35,9 @@ interface Slot {
   scope: GLScope | null;
   scene: Scene | null;
   def: PlayableScene | null;
+  /** Current seed macro value (0..1) and its drift velocity (per second). */
+  seed: number;
+  seedV: number;
 }
 
 export function mountLive(): void {
@@ -94,6 +97,9 @@ export function mountLive(): void {
   const tri = fullscreenTriangle(gl);
   const mixer = new Mixer(gl, tri);
   const director = new Director(seed);
+  // Macro modulation gets its own rng stream so the director's decision replay
+  // (same seed + same audio → same cuts) stays identical to pre-macro builds.
+  const macroRng = mulberry32(seed ^ 0x9e3779b9);
   const audio: AudioEngine = auto === "qa" ? new ScriptedAudio() : new AudioEngine();
 
   // Playback state
@@ -114,8 +120,8 @@ export function mountLive(): void {
   let strobeT = 0;
   let invertT = 0;
 
-  const program: Slot = { channel: 0, scope: null, scene: null, def: null };
-  const standby: Slot = { channel: 1, scope: null, scene: null, def: null };
+  const program: Slot = { channel: 0, scope: null, scene: null, def: null, seed: 0, seedV: 0 };
+  const standby: Slot = { channel: 1, scope: null, scene: null, def: null, seed: 0, seedV: 0 };
   let onAir = program;
   let deck = standby;
 
@@ -137,6 +143,11 @@ export function mountLive(): void {
       };
       const scene = scope.track(() => def.create(sctx));
       scope.track(() => scene.resize(rw, rh));
+      // Every cut gets its own face: seed the scene's macro (if exposed) and a
+      // slow drift velocity so the look keeps morphing over its airtime.
+      slot.seed = macroRng();
+      slot.seedV = (macroRng() < 0.5 ? -1 : 1) * 0.012;
+      scope.track(() => scene.macros?.seed?.(slot.seed));
       slot.scope = scope;
       slot.scene = scene;
       slot.def = def;
@@ -292,6 +303,19 @@ export function mountLive(): void {
     } else if (pending && !plan && (audio.beatPhase < 0.12 || now - lastCutT > 25)) {
       beginTransition();
     }
+
+    // --- macro drive: slow seed drift so the on-air face keeps morphing ---
+    const drift = (s: Slot): void => {
+      if (!s.scene?.macros?.seed) return;
+      s.seed += s.seedV * dt;
+      if (s.seed < 0 || s.seed > 1) {
+        s.seedV = -s.seedV;
+        s.seed = Math.min(1, Math.max(0, s.seed));
+      }
+      s.scene.macros.seed(s.seed);
+    };
+    drift(onAir);
+    if (plan) drift(deck);
 
     // --- render ---
     onAir.scene?.frame(now, dt, audio);

@@ -14,7 +14,7 @@ const FS = `#version 300 es
 precision highp float;
 ${COMMON_GLSL}
 uniform vec2 u_res;
-uniform float u_time, u_speed, u_amp, u_centroid, u_high, u_beat;
+uniform float u_time, u_speed, u_amp, u_centroid, u_high, u_beat, u_seed;
 uniform float u_spec[24];
 out vec4 o;
 
@@ -24,10 +24,14 @@ void main(){
   vec2 p = (uv - 0.5) * vec2(aspect, 1.0) * 5.0;
   float t = u_time * u_speed;
 
+  // seed macro (u_seed=0 → unmodulated): another face of the same plasma —
+  // different warp patch, orbit phases and palette rotation, all continuous
+  float sd = u_seed * 6.28318;
+
   // organic domain warp so the field never looks like a static grid
   vec2 pw = p + 0.3 * vec2(
-    snoise(vec3(p * 0.6, t * 0.1)),
-    snoise(vec3(p * 0.6 + 9.0, t * 0.1))
+    snoise(vec3(p * 0.6 + u_seed * 11.0, t * 0.1)),
+    snoise(vec3(p * 0.6 + 9.0 - u_seed * 7.0, t * 0.1))
   );
 
   // spectral frequency modulation: sample three representative bands
@@ -36,8 +40,8 @@ void main(){
   float f_hi2 = 1.0 + u_spec[14] * 0.4;   // ~2 kHz   — modulates diagonal
 
   // two radial centres that orbit slowly around the field
-  vec2 c1 = vec2(cos(t * 0.13) * 1.5, sin(t * 0.17) * 1.5);
-  vec2 c2 = vec2(sin(t * 0.11) * 1.2, cos(t * 0.09) * 1.8);
+  vec2 c1 = vec2(cos(t * 0.13 + sd) * 1.5, sin(t * 0.17 + sd * 0.7) * 1.5);
+  vec2 c2 = vec2(sin(t * 0.11 - sd) * 1.2, cos(t * 0.09 + sd * 1.3) * 1.8);
 
   // superposition of sine field terms
   float v = 0.0;
@@ -53,7 +57,7 @@ void main(){
   float vn = clamp((v / 6.0 + 0.5) * (0.5 + u_amp * 1.2), 0.0, 1.0);
 
   // cosine palette; centroid shifts the hue toward warmer tones
-  float hue = vn * 1.6 + clamp(u_centroid, 0.0, 1.0) * 0.45;
+  float hue = vn * 1.6 + clamp(u_centroid, 0.0, 1.0) * 0.45 + u_seed * 0.5;
   vec3 col = palette(hue,
     vec3(0.5, 0.5, 0.5),
     vec3(0.5, 0.5, 0.5),
@@ -78,8 +82,14 @@ export function createPlasma(ctx: SceneContext): Scene {
   const u: Uniforms = uniforms(gl, prog);
   let rw = 1,
     rh = 1;
+  let seed = 0;
 
   return {
+    macros: {
+      seed: (v) => {
+        seed = v;
+      },
+    },
     resize(w, h) {
       rw = w;
       rh = h;
@@ -96,6 +106,7 @@ export function createPlasma(ctx: SceneContext): Scene {
       gl.uniform1f(u.u_centroid, audio.centroid);
       gl.uniform1f(u.u_high, audio.high);
       gl.uniform1f(u.u_beat, audio.kickPulse);
+      gl.uniform1f(u.u_seed, seed);
       gl.uniform1fv(u.u_spec, audio.spectrum);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     },

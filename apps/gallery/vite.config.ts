@@ -21,6 +21,7 @@ interface SheetScene {
   loudMotion: number;
   meanLuma: number;
   thumbs: string[];
+  macroThumbs?: string[];
   error?: string;
 }
 
@@ -40,6 +41,7 @@ function renderSheet(r: SheetReport): string {
       <div class="head"><b>${s.no} ${s.title}</b> <span class="fam">${s.family}</span>
         <span class="st" style="color:${color[s.status]}">${s.status.toUpperCase()}</span></div>
       <div class="thumbs">${s.thumbs.map((t, i) => `<figure><img src="${t}"/><figcaption>${["quiet", "kick", "loud"][i]}</figcaption></figure>`).join("")}</div>
+      ${s.macroThumbs?.length ? `<div class="thumbs">${s.macroThumbs.map((t, i) => `<figure><img src="${t}"/><figcaption>seed ${["0.2", "0.5", "0.8"][i]}</figcaption></figure>`).join("")}</div>` : ""}
       <div class="m">${s.msPerFrame.toFixed(1)}ms/f · kickΔ ${s.kickDelta.toFixed(4)} · motion ${s.loudMotion.toFixed(4)} · luma ${s.meanLuma.toFixed(3)} · nullBind ${s.directNullBinds}</div>
       ${s.notes.length ? `<div class="n">${s.notes.join("<br/>")}</div>` : ""}
       ${s.error ? `<div class="e">${s.error}</div>` : ""}
