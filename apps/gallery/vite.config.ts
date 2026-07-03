@@ -20,6 +20,11 @@ interface SheetScene {
   kickDelta: number;
   loudMotion: number;
   meanLuma: number;
+  rmsContrast: number;
+  coverage: number;
+  edgeDensity: number;
+  hfRatio: number;
+  maxBlobFrac: number;
   thumbs: string[];
   error?: string;
 }
@@ -41,7 +46,8 @@ function renderSheet(r: SheetReport): string {
         <span class="st" style="color:${color[s.status]}">${s.status.toUpperCase()}</span></div>
       <div class="thumbs">${s.thumbs.map((t, i) => `<figure><img src="${t}"/><figcaption>${["quiet", "kick", "loud"][i]}</figcaption></figure>`).join("")}</div>
       <div class="m">${s.msPerFrame.toFixed(1)}ms/f · kickΔ ${s.kickDelta.toFixed(4)} · motion ${s.loudMotion.toFixed(4)} · luma ${s.meanLuma.toFixed(3)} · nullBind ${s.directNullBinds}</div>
-      ${s.notes.length ? `<div class="n">${s.notes.join("<br/>")}</div>` : ""}
+      <div class="m">cov ${s.coverage.toFixed(3)} · rms ${s.rmsContrast.toFixed(3)} · edge ${s.edgeDensity.toFixed(3)} · hf ${s.hfRatio.toFixed(2)} · blob ${s.maxBlobFrac.toFixed(2)}</div>
+      ${s.notes.length ? `<div class="n">${s.notes.map((n) => (n.startsWith("LOW_VIS") || n.startsWith("OVERSCALE") ? `<span class="flag">⚑ ${n}</span>` : n)).join("<br/>")}</div>` : ""}
       ${s.error ? `<div class="e">${s.error}</div>` : ""}
     </div>`,
     )
@@ -60,6 +66,7 @@ function renderSheet(r: SheetReport): string {
  .thumbs{display:flex;gap:6px;margin:8px 0} figure{margin:0} img{width:100%;display:block;border-radius:4px}
  figcaption{color:#567;font-size:10px;text-align:center}
  .m{color:#89a;font-size:11px} .n{color:#fa3;margin-top:4px} .e{color:#f55;margin-top:4px}
+ .flag{color:#f66;font-weight:700}
 </style>
 <div class="sum"><h2 style="margin:0">QA ${r.ts}</h2>
  ${r.scenes.length} scenes — <span style="color:#4c8">${counts.ok} ok</span> ·

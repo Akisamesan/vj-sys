@@ -62,12 +62,23 @@ interface Scene {
 
 ## 品質基準(QAが機械判定する)
 
-- **BLACK/WHITE**: 無音でも真っ黒にしない(ベース模様を残す)。白飛び面積85%未満
+- **BLACK**: 無音でも真っ黒にしない(ベース模様を残す)
+- **WHITE**: 白飛び画素(luma>0.97)を 18% 未満に(眩しさ対策)
 - **STATIC**: 音が鳴っている間、静止画にならない(自律運動+音反応)
 - **KICK_WEAK**: kick の瞬間に静止時ノイズと明確に区別できる視覚変化を出す
-- **SLOW**: 640×360 で 33ms/frame 以内(fragmentなら余裕。raymarchはステップ数注意)
+- **SLOW**: 640×360 headless(SwiftShader)で 15ms/frame 以内
+  (fragmentなら余裕。raymarchはステップ数注意)
+- **LOW_VIS**: 明部(luma>0.15)を画面の 2% 以上に。中央の小さな一塊だけで
+  構成しない(被覆25%未満 × 低コントラスト × 単一塊支配で旗が立つ)
+- **OVERSCALE**: ズームしすぎて巨大な無地シェイプだけにしない(ほぼ全面明部
+  なのに輪郭ばかりでディテールが無いと旗が立つ)
 - **nullBind = 0**: `ctx.bindOutput()` 契約の遵守
 - resize 後も破綻しない(FBOの再確保は `resize()` 内で)
+
+視認性系(WHITE/LOW_VIS/OVERSCALE)は loud キャプチャの 240×135 luma で判定する。
+閾値の根拠と較正手順は `engine/qa.ts` 冒頭の定数コメントを参照。既知の限界:
+微小パーティクルの「実機フル解像度では薄すぎる」問題(07 BOIDS)は 640×360 の
+QA では再現されないため機械判定できない。
 
 制約: TS は erasableSyntaxOnly(parameter property / enum / namespace 禁止)。
 `Math.random()` は使用可(QAがシード固定する)。`performance.now()`/`Date.now()` は
