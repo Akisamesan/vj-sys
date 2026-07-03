@@ -65,8 +65,12 @@ function finish() {
   for (const s of r.scenes) {
     counts[s.status]++;
     const flag = s.status === "ok" ? " " : s.status === "warn" ? "!" : "✗";
+    const vis =
+      s.coverage === undefined
+        ? ""
+        : `cov ${s.coverage.toFixed(3)} edge ${s.edgeDensity.toFixed(3)} hf ${s.hfRatio.toFixed(2)}  `;
     console.log(
-      `${flag} ${s.no.padEnd(3)} ${s.title.padEnd(14)} ${s.msPerFrame.toFixed(1).padStart(6)}ms  kickΔ ${s.kickDelta.toFixed(4)}  nullBind ${String(s.directNullBinds).padStart(3)}  ${s.notes.join(", ")}${s.error ? "  ERR: " + s.error : ""}`,
+      `${flag} ${s.no.padEnd(3)} ${s.title.padEnd(14)} ${s.msPerFrame.toFixed(1).padStart(6)}ms  kickΔ ${s.kickDelta.toFixed(4)}  ${vis}nullBind ${String(s.directNullBinds).padStart(3)}  ${s.notes.join(", ")}${s.error ? "  ERR: " + s.error : ""}`,
     );
   }
   console.log(
