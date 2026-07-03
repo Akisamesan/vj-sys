@@ -3,12 +3,21 @@
 // transition plus a thin layer of master FX (kick zoom-pulse, RGB shift,
 // strobe, invert). Channels are LDR (scenes tone-map themselves), so the bus
 // stays cheap: one RGBA8 target per channel and a single fullscreen pass.
+//
+// Beyond transitions the bus supports blend-hold: both channels stay live and
+// B is layered onto A (add / screen / luma mask) full-time; u_prog then
+// crossfades the held image into pure B when the hold resolves. A channel can
+// be reallocated at reduced scale (half-res B) — grab() samples normalized
+// UVs, so the composite is unchanged.
 
 import { program, uniforms, texture, framebuffer, FULLSCREEN_VS } from "./gl.ts";
 import type { Uniforms } from "./gl.ts";
 
 /** Transition kinds the director can pick. "cut" swaps without a mix window. */
 export type TransitionKind = "cut" | "xfade" | "luma" | "glitch" | "flash" | "zoom";
+
+/** Blend-hold operators (steady-state 2-layer composites, not transitions). */
+export type BlendMode = "add" | "screen" | "lumaMask";
 
 const KIND_ID: Record<TransitionKind, number> = {
   cut: 0,
@@ -19,12 +28,20 @@ const KIND_ID: Record<TransitionKind, number> = {
   zoom: 5,
 };
 
+const BLEND_ID: Record<BlendMode, number> = {
+  add: 1,
+  screen: 2,
+  lumaMask: 3,
+};
+
 const MIX_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_a, u_b;
 uniform vec2 u_res;
 uniform float u_mode;    // KIND_ID
 uniform float u_prog;    // transition progress 0..1 (0 => pure A)
+uniform float u_bmode;   // BLEND_ID (0 => no blend-hold)
+uniform float u_blend;   // blend-hold amount 0..1
 uniform float u_time;
 uniform float u_kick;    // kick pulse 0..1 -> zoom punch + rgb shift
 uniform float u_shift;   // extra rgb shift 0..1
@@ -54,7 +71,15 @@ void main(){
   float ps = p * p * (3.0 - 2.0 * p);
   vec3 col;
 
-  if (u_mode < 0.5) {                       // cut / no transition
+  if (u_bmode > 0.5) {                      // blend-hold: B layered onto A
+    vec3 a = grab(u_a, uv, ab);
+    vec3 b = grab(u_b, uv, ab);
+    vec3 held;
+    if (u_bmode < 1.5) held = a + b * u_blend;
+    else if (u_bmode < 2.5) held = 1.0 - (1.0 - a) * (1.0 - b * u_blend);
+    else held = mix(a, b, smoothstep(0.25, 0.7, luma(b)) * u_blend);
+    col = mix(held, b, ps);                 // pass-through exit resolves to B
+  } else if (u_mode < 0.5) {                // cut / no transition
     col = grab(u_a, uv, ab);
   } else if (u_mode < 1.5) {                // crossfade
     col = mix(grab(u_a, uv, ab), grab(u_b, uv, ab), ps);
@@ -92,8 +117,10 @@ void main(){
 
 export interface MixParams {
   kind: TransitionKind;
-  /** 0..1; ignored for "cut". */
+  /** 0..1; ignored for "cut". During a blend-hold this is the exit progress. */
   progress: number;
+  /** Blend-hold layer; null outside holds. Mutually exclusive with transitions. */
+  blend: { mode: BlendMode; amount: number } | null;
   time: number;
   kickPulse: number;
   rgbShift: number;
@@ -104,6 +131,8 @@ export interface MixParams {
 interface Channel {
   tex: WebGLTexture;
   fbo: WebGLFramebuffer;
+  w: number;
+  h: number;
 }
 
 export class Mixer {
@@ -112,6 +141,7 @@ export class Mixer {
   private prog: WebGLProgram;
   private u: Uniforms;
   private ch: [Channel, Channel] | null = null;
+  private scale: [number, number] = [1, 1];
   private w = 1;
   private h = 1;
 
@@ -122,32 +152,56 @@ export class Mixer {
     this.u = uniforms(gl, this.prog);
   }
 
-  resize(w: number, h: number): void {
+  private makeChannel(i: 0 | 1): Channel {
     const gl = this.gl;
+    const w = Math.max(1, Math.round(this.w * this.scale[i]));
+    const h = Math.max(1, Math.round(this.h * this.scale[i]));
+    const tex = texture(gl, w, h, {
+      internal: gl.RGBA8,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      filter: gl.LINEAR,
+    });
+    return { tex, fbo: framebuffer(gl, tex), w, h };
+  }
+
+  private dropChannel(c: Channel): void {
+    this.gl.deleteFramebuffer(c.fbo);
+    this.gl.deleteTexture(c.tex);
+  }
+
+  resize(w: number, h: number): void {
     this.w = w;
     this.h = h;
-    if (this.ch)
-      for (const c of this.ch) {
-        gl.deleteFramebuffer(c.fbo);
-        gl.deleteTexture(c.tex);
-      }
-    const make = (): Channel => {
-      const tex = texture(gl, w, h, {
-        internal: gl.RGBA8,
-        format: gl.RGBA,
-        type: gl.UNSIGNED_BYTE,
-        filter: gl.LINEAR,
-      });
-      return { tex, fbo: framebuffer(gl, tex) };
-    };
-    this.ch = [make(), make()];
+    if (this.ch) for (const c of this.ch) this.dropChannel(c);
+    this.ch = [this.makeChannel(0), this.makeChannel(1)];
+  }
+
+  /**
+   * Reallocate channel i at a fraction of the output size (0.5 = half-res
+   * blend-hold partner; 1 restores full res). The scene rendering into it must
+   * be resize()d to channelSize(i) by the caller.
+   */
+  setChannelScale(i: 0 | 1, s: number): void {
+    if (this.scale[i] === s) return;
+    this.scale[i] = s;
+    if (!this.ch) return;
+    this.dropChannel(this.ch[i]);
+    this.ch[i] = this.makeChannel(i);
+  }
+
+  /** Current pixel size of channel i (what its scene should resize() to). */
+  channelSize(i: 0 | 1): [number, number] {
+    const c = this.ch![i];
+    return [c.w, c.h];
   }
 
   /** Bind channel i as the render target (what a slot's ctx.bindOutput calls). */
   bindChannel(i: 0 | 1): void {
     const gl = this.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.ch![i].fbo);
-    gl.viewport(0, 0, this.w, this.h);
+    const c = this.ch![i];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, c.fbo);
+    gl.viewport(0, 0, c.w, c.h);
   }
 
   /** Composite channel a (and b while transitioning) to the screen. */
@@ -167,6 +221,8 @@ export class Mixer {
     gl.uniform2f(this.u.u_res, this.w, this.h);
     gl.uniform1f(this.u.u_mode, KIND_ID[p.kind]);
     gl.uniform1f(this.u.u_prog, p.progress);
+    gl.uniform1f(this.u.u_bmode, p.blend ? BLEND_ID[p.blend.mode] : 0);
+    gl.uniform1f(this.u.u_blend, p.blend?.amount ?? 0);
     gl.uniform1f(this.u.u_time, p.time);
     gl.uniform1f(this.u.u_kick, p.kickPulse);
     gl.uniform1f(this.u.u_shift, p.rgbShift);

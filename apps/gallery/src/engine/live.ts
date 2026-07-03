@@ -9,8 +9,17 @@
 // stays one scene + one fullscreen composite. GLScope reclaims all GL objects
 // on every swap.
 //
+// Some segments become blend-holds: the Director pairs the current scene with
+// a QA-profile-compatible partner (load budget + luma contrast) and the deck
+// renders full-time, layered by the mix bus (add / screen / luma mask) with a
+// phrase-length breathing blend amount — no per-kick twitching. The layer then
+// resolves INTO the partner (pass-through exit), so the deck is always "the
+// next scene". A runtime FPS guard drops the partner to half-res and, failing
+// that, resolves the hold early and bans the pair for the session.
+//
 // URL params: ?live[&seed=N][&auto=demo|qa]  (auto=qa uses ScriptedAudio — no
-// gesture, deterministic decisions; used by the headless smoke test.)
+// gesture, deterministic decisions, holds forced on every eligible segment,
+// FPS guard off; used by the headless smoke test.)
 
 import { getContext, fullscreenTriangle, GLError } from "./gl.ts";
 import { AudioEngine } from "./audio.ts";
@@ -18,8 +27,9 @@ import { ScriptedAudio } from "./scripted.ts";
 import { GLScope } from "./track.ts";
 import { Mixer } from "./mixer.ts";
 import { Director } from "./director.ts";
-import type { TransitionPlan } from "./director.ts";
+import type { TransitionPlan, HoldPlan } from "./director.ts";
 import { SCENES } from "../scenes/registry.ts";
+import { PROFILES } from "../scenes/profile.gen.ts";
 import type { SceneDef, Scene, SceneContext } from "./scene.ts";
 
 function el<T extends HTMLElement>(html: string): T {
@@ -36,6 +46,19 @@ interface Slot {
   scene: Scene | null;
   def: PlayableScene | null;
 }
+
+interface HoldState {
+  plan: HoldPlan;
+  /** wait: partner not built yet → in: β ramp → hold: plateau → out: resolve to B. */
+  phase: "wait" | "in" | "hold" | "out";
+  beta: number;
+  exitFast: boolean;
+}
+
+/** Blend-hold beat offsets: settle-in wait, β ramp, and pass-through exit. */
+const HOLD_WAIT = 4;
+const HOLD_RAMP = 4;
+const HOLD_EXIT = 4;
 
 export function mountLive(): void {
   const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -93,7 +116,7 @@ export function mountLive(): void {
 
   const tri = fullscreenTriangle(gl);
   const mixer = new Mixer(gl, tri);
-  const director = new Director(seed);
+  const director = new Director(seed, PROFILES);
   const audio: AudioEngine = auto === "qa" ? new ScriptedAudio() : new AudioEngine();
 
   // Playback state
@@ -108,6 +131,14 @@ export function mountLive(): void {
   // Transition state
   let plan: TransitionPlan | null = null;
   let progress = 0;
+
+  // Blend-hold state
+  let hold: HoldState | null = null;
+  /** True while the deck channel is allocated at half resolution. */
+  let deckHalf = false;
+  // FPS guard (real-audio modes only): EMA of the raw frame delta.
+  let emaDt = 1 / 60;
+  let slowT = 0;
 
   // Master FX
   let fxOn = true;
@@ -136,7 +167,8 @@ export function mountLive(): void {
         bindOutput: () => mixer.bindChannel(slot.channel),
       };
       const scene = scope.track(() => def.create(sctx));
-      scope.track(() => scene.resize(rw, rh));
+      const [cw, ch] = mixer.channelSize(slot.channel);
+      scope.track(() => scene.resize(cw, ch));
       slot.scope = scope;
       slot.scene = scene;
       slot.def = def;
@@ -157,6 +189,13 @@ export function mountLive(): void {
     }
   }
 
+  /** Resize a slot's scene to its mixer channel's current pixel size. */
+  function fitChannel(slot: Slot): void {
+    if (!slot.scene || !slot.scope) return;
+    const [cw, ch] = mixer.channelSize(slot.channel);
+    slot.scope.track(() => slot.scene!.resize(cw, ch));
+  }
+
   /** Swap deck on air; the old program becomes the (empty) deck. */
   function swap(): void {
     onAir.scope?.dispose();
@@ -165,17 +204,32 @@ export function mountLive(): void {
     const t = onAir;
     onAir = deck;
     deck = t;
+    if (deckHalf) {
+      // The promoted scene rendered half-res during the hold — restore full res.
+      deckHalf = false;
+      mixer.setChannelScale(onAir.channel, 1);
+      fitChannel(onAir);
+    }
     beats = 0;
     pending = false;
     forcedPlan = null;
     prefetched = false;
     plan = null;
     progress = 0;
+    hold = null;
     lastCutT = performance.now() / 1000;
+    scheduleHold();
+  }
+
+  /** Roll the dice for a blend-hold on the segment that just started. */
+  function scheduleHold(): void {
+    const p = director.planHold(pool, onAir.def, auto === "qa");
+    if (p) hold = { plan: p, phase: "wait", beta: 0, exitFast: false };
   }
 
   /** Begin the planned transition (or hard-swap for cuts). */
   function beginTransition(): void {
+    hold = null; // transitions and blend-holds are mutually exclusive
     if (!deck.scene) prefetch();
     if (!deck.scene) {
       // Nothing playable to go to; reset the bar and try again next interval.
@@ -201,8 +255,7 @@ export function mountLive(): void {
     canvas.width = rw = Math.floor(innerWidth * dpr);
     canvas.height = rh = Math.floor(innerHeight * dpr);
     mixer.resize(rw, rh);
-    for (const s of [onAir, deck])
-      if (s.scene && s.scope) s.scope.track(() => s.scene!.resize(rw, rh));
+    for (const s of [onAir, deck]) fitChannel(s);
   };
   addEventListener("resize", resize);
   resize();
@@ -267,56 +320,133 @@ export function mountLive(): void {
     if (paused) return;
 
     const now = performance.now() / 1000;
-    const dt = Math.min(0.05, lastT ? now - lastT : 0.016);
+    const rawDt = lastT ? now - lastT : 1 / 60;
+    const dt = Math.min(0.05, rawDt);
     lastT = now;
 
     audio.update(dt);
     director.update(now, dt, audio);
 
     if (audio.kick) beats++;
+    const beatsF = beats + audio.beatPhase;
 
-    // --- cut scheduling ---
-    if (!prefetched && beats >= Math.ceil(interval / 2)) {
+    // --- cut scheduling (hold segments run on their own clock) ---
+    if (!prefetched && !hold && beats >= Math.ceil(interval / 2)) {
       prefetched = true;
       prefetch();
     }
-    if (!pending && beats >= interval) pending = true;
+    if (!pending && !hold && beats >= interval) pending = true;
     // Novelty section change: cut early once at least half a bar has passed.
-    if (!pending && !plan && director.section && beats >= 8) pending = true;
+    if (!pending && !hold && !plan && director.section && beats >= 8) pending = true;
     // BPM undetected fallback.
-    if (!pending && now - lastCutT > 20) pending = true;
+    if (!pending && !hold && now - lastCutT > 20) pending = true;
+
+    // Hold interrupts: drops, manual skips and the stuck-clock fallback all
+    // resolve the layer early instead of starting a competing transition.
+    if (hold && (director.drop || pending || now - lastCutT > 40)) {
+      if (hold.phase === "wait") {
+        hold = null; // partner not built yet — fall back to the normal path
+        prefetched = false;
+      } else if (hold.phase !== "out") {
+        hold.phase = "out";
+        hold.exitFast = true;
+        progress = 0;
+        smokeLog("hold:exit", 1);
+      }
+      if (hold) pending = false;
+    }
+
     // Drop: hit immediately, don't wait for the downbeat.
-    if (!plan && director.drop) {
+    if (!plan && !hold && director.drop) {
       pending = true;
       beginTransition();
-    } else if (pending && !plan && (audio.beatPhase < 0.12 || now - lastCutT > 25)) {
+    } else if (pending && !plan && !hold && (audio.beatPhase < 0.12 || now - lastCutT > 25)) {
       beginTransition();
+    }
+
+    // --- blend-hold timeline ---
+    if (hold) {
+      const h = hold;
+      if (h.phase === "wait" && beatsF >= HOLD_WAIT) {
+        if (h.plan.halfRes) mixer.setChannelScale(deck.channel, 0.5);
+        if (make(deck, h.plan.partner as PlayableScene)) {
+          deckHalf = h.plan.halfRes;
+          h.phase = "in";
+          smokeLog(`hold:${h.plan.mode}`, h.plan.beats);
+        } else {
+          mixer.setChannelScale(deck.channel, 1);
+          hold = null;
+          prefetched = false;
+        }
+      } else if (h.phase === "in") {
+        const x = Math.min(1, (beatsF - HOLD_WAIT) / HOLD_RAMP);
+        h.beta = h.plan.base * x * x * (3 - 2 * x);
+        if (x >= 1) h.phase = "hold";
+      } else if (h.phase === "hold") {
+        // Phrase-length breathing (one cycle per 16 beats) — the layer swells
+        // with the bar structure instead of twitching per kick.
+        const breathe = Math.sin((beatsF / 16) * Math.PI * 2) * 0.12;
+        h.beta = Math.min(0.82, Math.max(0.35, h.plan.base + breathe));
+        if (beatsF >= HOLD_WAIT + HOLD_RAMP + h.plan.beats) {
+          h.phase = "out";
+          progress = 0;
+          smokeLog("hold:exit", HOLD_EXIT);
+        }
+      } else if (h.phase === "out") {
+        progress += (dt * ((audio.bpm || 120) / 60)) / (h.exitFast ? 1 : HOLD_EXIT);
+      }
+    }
+
+    const holdLive = hold !== null && hold.phase !== "wait";
+
+    // FPS guard (skipped in auto=qa: SwiftShader would trip it instantly and
+    // it would break decision determinism). Half-res the partner first; if the
+    // pair still can't hold 60fps, resolve early and ban it for the session.
+    if (auto !== "qa" && holdLive && hold!.phase !== "out") {
+      if (rawDt < 0.25) emaDt += (rawDt - emaDt) * Math.min(1, dt / 0.35);
+      slowT = emaDt > 1 / 57 ? slowT + dt : Math.max(0, slowT - dt * 2);
+      if (slowT > 1) {
+        slowT = 0;
+        if (!deckHalf) {
+          deckHalf = true;
+          mixer.setChannelScale(deck.channel, 0.5);
+          fitChannel(deck);
+        } else {
+          director.banHoldPair(onAir.def!.id, deck.def!.id);
+          hold!.phase = "out";
+          hold!.exitFast = true;
+          progress = 0;
+          smokeLog("hold:exit", 1);
+        }
+      }
+    } else {
+      slowT = 0;
     }
 
     // --- render ---
     onAir.scene?.frame(now, dt, audio);
-    if (plan) {
-      deck.scene?.frame(now, dt, audio);
-      progress += (dt * ((audio.bpm || 120) / 60)) / plan.beats;
-    }
+    if (plan || holdLive) deck.scene?.frame(now, dt, audio);
+    if (plan) progress += (dt * ((audio.bpm || 120) / 60)) / plan.beats;
 
-    // Master FX values.
+    // Master FX values. During a hold the kick zoom is attenuated and the
+    // section invert skipped: the layer's slow breathing carries the music.
     strobeT = Math.max(0, strobeT - dt);
     invertT = Math.max(0, invertT - dt);
-    if (fxOn && director.section && director.tier === "high") invertT = 0.09;
+    if (fxOn && !holdLive && director.section && director.tier === "high") invertT = 0.09;
     const strobe = fxOn && strobeT > 0 && Math.floor(now * 14) % 2 === 0 ? 1 : 0;
 
     mixer.composite(onAir.channel, deck.channel, {
       kind: plan?.kind ?? "cut",
       progress,
+      blend: holdLive ? { mode: hold!.plan.mode, amount: hold!.beta } : null,
       time: now,
-      kickPulse: fxOn ? audio.kickPulse : 0,
+      kickPulse: fxOn ? audio.kickPulse * (holdLive ? 0.3 : 1) : 0,
       rgbShift: fxOn ? audio.snarePulse * 0.4 + audio.change * 0.15 : 0,
       strobe,
       invert: invertT > 0 ? 1 : 0,
     });
 
-    if (plan && progress >= 1) swap();
+    if ((plan || (hold && hold.phase === "out")) && progress >= 1) swap();
     if (auto === "qa") smokeTick(dt);
 
     // --- HUD ---
@@ -329,6 +459,8 @@ export function mountLive(): void {
       lInt.textContent = String(interval);
       lBar.textContent = `${beats}/${interval}`;
       lNrg.textContent = director.breakdown ? "break" : director.tier;
+      if (holdLive)
+        lTrn.textContent = `hold ${hold!.plan.mode}${deckHalf ? " ½" : ""} β${hold!.beta.toFixed(2)}`;
     }
   };
 
@@ -340,7 +472,8 @@ export function mountLive(): void {
       const def = director.pickNext(pool, null) as PlayableScene;
       make(onAir, def);
     }
-    prefetch();
+    scheduleHold();
+    if (!hold) prefetch();
     prefetched = true;
     if (!started) {
       started = true;
