@@ -106,7 +106,8 @@ export function createCyclic(ctx: SceneContext): Scene {
   const COARSE = 20;
   function seed(): void {
     const blockStates = new Float32Array(COARSE * COARSE);
-    for (let i = 0; i < blockStates.length; i++) blockStates[i] = Math.floor(Math.random() * STATES);
+    for (let i = 0; i < blockStates.length; i++)
+      blockStates[i] = Math.floor(Math.random() * STATES);
 
     const data = new Float32Array(N * N * 4);
     for (let y = 0; y < N; y++) {
