@@ -15,6 +15,14 @@ dist-ssr
 # QA harness output (apps/gallery/qa-out)
 qa-out
 
+# Build & tool caches (Vite / Rolldown / Vitest / tsdown / TS)
+.vite
+.vite-temp
+.rolldown
+.tsdown
+coverage
+*.tsbuildinfo
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
