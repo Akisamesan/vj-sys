@@ -57,12 +57,12 @@ vec3 neonColor(float hu){
 void main(){
   vec2 uv = gl_FragCoord.xy / u_res;
   float aspect = u_res.x / max(u_res.y, 1e-4);
-  vec2 p = (uv - 0.5) * vec2(aspect, 1.0) * 6.0;
-  float xw = aspect * 3.0 - 0.35;
+  vec2 p = (uv - 0.5) * vec2(aspect, 1.0) * 4.5;
+  float xw = aspect * 2.25 - 0.3;
 
   // bass (continuous): wider glow radius + thicker tube core
-  float glowK = mix(15.0, 6.5, clamp(u_bass, 0.0, 1.0));
-  float coreW = 0.026 + u_bass * 0.03;
+  float glowK = mix(9.0, 4.0, clamp(u_bass, 0.0, 1.0));
+  float coreW = 0.055 + u_bass * 0.035;
 
   // dark backdrop with a faint animated texture so silence never reads pure black
   vec3 col = vec3(0.014, 0.011, 0.028);
@@ -91,7 +91,7 @@ void main(){
     // kick-driven sequence state: how long since this tube was ignited
     float litTime = u_litT[i];
     float onAmt = litTime > -500.0 ? (1.0 - exp(-(u_time - litTime) * 3.5)) : 0.0;
-    float amb = 0.12; // unlit tubes still trace a faint outline (reads as "the sign")
+    float amb = 0.24; // unlit tubes still trace a faint outline (reads as "the sign")
     float lvl = amb + onAmt * (1.0 - amb);
 
     // level (continuous): low-frequency, irregular, deterministic hash flicker

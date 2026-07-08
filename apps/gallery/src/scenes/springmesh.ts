@@ -41,10 +41,10 @@ const VEL_CLAMP = 40;
 // simple front-to-back draw order (rows ascending) is a correct painter's sort
 // without a depth buffer.
 const PERSP = 0.55;
-const X_SCALE = 0.82;
-const Y_SCALE = 0.52;
+const X_SCALE = 0.98;
+const Y_SCALE = 0.68;
 const VIS_H = 0.4;
-const OFFSET_Y = 0.02;
+const OFFSET_Y = 0.0;
 
 const VS = `#version 300 es
 precision highp float;
@@ -68,7 +68,7 @@ ${COMMON_GLSL}
 in float v_height;
 in vec2 v_normal;
 in float v_glow;
-uniform float u_high, u_kickPulse, u_centroid, u_energy, u_hue;
+uniform float u_high, u_kickPulse, u_centroid, u_energy, u_hue, u_seed;
 out vec4 o;
 void main(){
   vec3 normal = normalize(vec3(v_normal * 7.5, 1.0));
@@ -79,16 +79,18 @@ void main(){
   float shininess = mix(16.0, 100.0, clamp(u_high, 0.0, 1.0));
   float spec = pow(max(dot(normal, halfV), 0.0), shininess);
 
-  // metallic / cool-blue palette; centroid + hue macro drift the phase
-  float phase = 0.06 + clamp(u_centroid, 0.0, 1.0) * 0.42 + u_hue;
-  vec3 metal = palette(phase, vec3(0.16, 0.22, 0.30), vec3(0.22, 0.26, 0.30), vec3(1.0, 1.0, 1.0), vec3(0.55, 0.62, 0.74));
+  // metallic / cool-blue palette; centroid + hue macro drift the phase.
+  // seed macro (0 = identity) adds its own continuous phase offset so it
+  // reads as a distinct "face" of the same mesh under a seed sweep.
+  float phase = 0.06 + clamp(u_centroid, 0.0, 1.0) * 0.42 + u_hue + u_seed * 0.5;
+  vec3 metal = palette(phase, vec3(0.30, 0.38, 0.48), vec3(0.34, 0.36, 0.34), vec3(1.0, 1.0, 1.0), vec3(0.55, 0.62, 0.74));
 
-  float mixv = clamp(v_height * 0.7 + 0.5, 0.0, 1.0);
-  vec3 deep = vec3(0.015, 0.03, 0.075);
+  float mixv = clamp(v_height * 0.9 + 0.5, 0.0, 1.0);
+  vec3 deep = vec3(0.07, 0.11, 0.19);
   vec3 col = mix(deep, metal, mixv);
-  col = col * (0.4 + 0.75 * diff);
+  col = col * (0.72 + 0.85 * diff);
   col += vec3(0.85, 0.92, 1.0) * spec * (0.8 + 0.6 * u_high);
-  col *= 1.0 + u_energy * 0.6;
+  col *= 1.35 + u_energy * 0.6;
 
   // localized decaying glow at the last kick's impact node — a structural
   // trigger response, not a full-screen flash.
@@ -314,6 +316,7 @@ export function createSpringmesh(ctx: SceneContext): Scene {
       gl.uniform1f(u.u_centroid, audio.centroid);
       gl.uniform1f(u.u_energy, macroEnergy);
       gl.uniform1f(u.u_hue, macroHue);
+      gl.uniform1f(u.u_seed, macroSeed);
       gl.drawArrays(gl.TRIANGLES, 0, vertCount);
 
       post.draw(rw, rh, {

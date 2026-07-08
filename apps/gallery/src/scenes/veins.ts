@@ -41,11 +41,11 @@ const BASE_RATE = 70; // growth steps/sec at bass=0 (keeps motion alive in quiet
 const BASS_RATE_SCALE = 260; // extra steps/sec at bass=1
 const MAX_STEPS_PER_FRAME = 6;
 
-const THICK_MIN = 0.0018;
-const THICK_MAX = 0.03;
-const FLUX_NORM = 220;
-const FLUX_POWER = 0.45;
-const BRIGHT_MULT = 2.0; // explicit visibility floor (see SCENES.md LOW_VIS recipe)
+const THICK_MIN = 0.006;
+const THICK_MAX = 0.05;
+const FLUX_NORM = 70;
+const FLUX_POWER = 0.35;
+const BRIGHT_MULT = 2.6; // explicit visibility floor (see SCENES.md LOW_VIS recipe)
 
 const RESPAWN_MIN = 0.4;
 const RESPAWN_MAX = 2.4;
@@ -254,7 +254,7 @@ export function createVeins(ctx: SceneContext): Scene {
 
   // Warm the network up synchronously so the very first rendered frame
   // already shows structure instead of a bare root point.
-  for (let i = 0; i < 40; i++) growStep();
+  for (let i = 0; i < 160; i++) growStep();
 
   const vao = gl.createVertexArray()!;
   const vbo = gl.createBuffer()!;
