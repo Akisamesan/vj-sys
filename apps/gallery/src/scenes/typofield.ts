@@ -163,20 +163,26 @@ export function createTypoField(ctx: SceneContext): Scene {
       const fdt = Math.min(dt, 1 / 30);
 
       // level (continuous): soft ambient hum keeps the field from ever going dark.
-      const ambient = 0.05 + audio.level * 0.09;
-      for (let i = 0; i < FIELD_N; i++) field[i] += (ambient - field[i] * 0.02) * fdt;
+      // Additive (not ODE-toward-ambient), tuned so the steady state (~0.3)
+      // sits below the shader's crisp-reveal threshold (0.75) — the field
+      // stays a faint bloom at rest, leaving headroom for kicks to read.
+      const ambientAdd = (0.0045 + audio.level * 0.015) * (fdt * 60);
+      for (let i = 0; i < FIELD_N; i++) field[i] += ambientAdd;
 
       // kick (trigger): a strong localized pulse at a rotating field position,
-      // radius set by bass — structural, no screen flash.
+      // radius set by bass — structural, no screen flash. Pushes well past
+      // the crisp threshold so the kick reads as a clear local snap-into-focus.
       if (audio.kick) {
         const ang = t * 0.7;
         const fx = FIELD_W * 0.5 + Math.cos(ang) * FIELD_W * 0.28;
         const fy = FIELD_H * 0.5 + Math.sin(ang * 1.3) * FIELD_H * 0.28;
-        stampAt(fx, fy, 1.1, 2.5 + audio.bass * 4.0);
+        stampAt(fx, fy, 1.3, 3.5 + audio.bass * 5.0);
       }
 
       // Cheap 3x3 blur (diffusion) + decay, ping-ponged through fieldNext.
-      const decay = 0.965;
+      // decay is close to 1 so the ambient hum settles at a visible plateau
+      // (steady state ~= ambientAdd / (1-decay)) instead of bleeding away.
+      const decay = 0.985;
       for (let y = 0; y < FIELD_H; y++) {
         for (let x = 0; x < FIELD_W; x++) {
           let sum = 0,
