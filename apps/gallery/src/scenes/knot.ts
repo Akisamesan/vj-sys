@@ -157,7 +157,7 @@ export function createKnot(ctx: SceneContext): Scene {
     rh = 1;
   let yaw = 0,
     pitch = 0.32;
-  let scaleCur = 0.6;
+  let scaleCur = 3.2;
   let pCur = 2,
     qCur = 3;
   let knotIdx = 0;
@@ -199,7 +199,7 @@ export function createKnot(ctx: SceneContext): Scene {
       tubeRadiusCur += (tubeTarget - tubeRadiusCur) * (1 - Math.exp(-dt * 5));
       const rTarget = 0.42 + audio.bass * 0.22;
       rMinorCur += (rTarget - rMinorCur) * (1 - Math.exp(-dt * 4));
-      scaleCur += (0.6 - scaleCur) * (1 - Math.exp(-dt * 4));
+      scaleCur += (3.2 - scaleCur) * (1 - Math.exp(-dt * 4));
 
       // ---- render ----
       post.bind();
