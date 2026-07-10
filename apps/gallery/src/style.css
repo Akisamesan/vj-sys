@@ -209,28 +209,56 @@ button:focus-visible {
   transform: translateY(-2px);
   background: linear-gradient(160deg, rgba(122, 215, 255, 0.14), rgba(255, 255, 255, 0.03));
 }
+.card.thumb {
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(5, 7, 13, 0.32) 0%,
+      rgba(5, 7, 13, 0.58) 55%,
+      rgba(5, 7, 13, 0.94) 100%
+    ),
+    var(--cover);
+  background-size: cover;
+  background-position: center;
+}
+.card.thumb:hover {
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(5, 7, 13, 0.2) 0%,
+      rgba(5, 7, 13, 0.45) 55%,
+      rgba(5, 7, 13, 0.9) 100%
+    ),
+    var(--cover);
+  background-size: cover;
+  background-position: center;
+}
 .card .no {
   font-size: 11px;
   color: var(--accent);
   letter-spacing: 0.2em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 .card .ttl {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.16em;
   margin: 2px 0;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
 }
 .card .fam {
   font-size: 10px;
   color: var(--dim);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 .card .bl {
   margin-top: 8px;
   font-size: 11px;
   line-height: 1.7;
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 .card .go,
 .card .soon {
