@@ -35,6 +35,7 @@ const child = spawn(
     "--hide-scrollbars",
     "--window-size=900,560",
     "--enable-unsafe-swiftshader",
+    ...(process.env.CHROME_NO_SANDBOX ? ["--no-sandbox"] : []),
     url,
   ],
   { stdio: "ignore" },
