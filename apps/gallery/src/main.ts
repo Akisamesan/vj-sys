@@ -26,11 +26,14 @@ function renderIndex(): void {
   const cards = SCENES.map((s) => {
     const playable = Boolean(s.create || s.href);
     const href = s.href ?? `?scene=${s.id}`;
-    const cls = playable ? "card" : "card planned";
+    const cls = playable ? "card thumb" : "card planned";
     const tag = playable ? "a" : "div";
     const attrs = playable ? ` href="${href}"` : "";
+    // Static cover JPGs come from qa/covers.mjs (headless capture of the scene's
+    // "loud" QA frame); a missing file just falls through to the plain gradient.
+    const style = s.create ? ` style="--cover:url(./covers/${s.id}.jpg)"` : "";
     return `
-      <${tag} class="${cls}"${attrs}>
+      <${tag} class="${cls}"${attrs}${style}>
         <div class="no">${s.no}</div>
         <div class="ttl">${s.title}</div>
         <div class="fam">${s.family}</div>
