@@ -10,6 +10,8 @@ const def = findScene(sceneId);
 const qa = params.get("qa");
 if (qa !== null) {
   void import("./engine/qa.ts").then((m) => m.mountQA(qa));
+} else if (params.has("render")) {
+  void import("./engine/render.ts").then((m) => m.mountRender(params));
 } else if (params.has("live")) {
   mountLive();
 } else if (def?.href) {
