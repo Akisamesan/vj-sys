@@ -1,6 +1,9 @@
 // Gallery app config. The qaReport plugin receives the in-page QA harness's
 // results (?qa=all posts to /__qa/report) and writes qa-out/report.json plus a
 // human-friendly contact sheet qa-out/sheet.html. qa/run.mjs drives this headless.
+// It also receives the render harness's frame POSTs (?render=<id>, see
+// engine/render.ts) and writes them to qa-out/render/<id>/, which qa/render.mjs
+// pipes through ffmpeg into a Hap-codec .mov.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -110,6 +113,62 @@ function qaReport(): Plugin {
               join(dir, "live-report.json"),
               JSON.stringify({ seed: body.seed, transitions: body.transitions }, null, 1),
             );
+            res.setHeader("content-type", "application/json");
+            res.end('{"ok":true}');
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String(e));
+          }
+        });
+      });
+      // Render export: one PNG frame per POST (?render=<id> in engine/render.ts).
+      server.middlewares.use("/__render/frame", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const url = new URL(req.url ?? "", "http://render.local");
+        const id = url.searchParams.get("id");
+        const i = url.searchParams.get("i");
+        if (!id || i === null) {
+          res.statusCode = 400;
+          res.end("missing id/i");
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          try {
+            const dir = join(server.config.root, "qa-out", "render", id);
+            mkdirSync(dir, { recursive: true });
+            const idx = String(Number(i)).padStart(6, "0");
+            writeFileSync(join(dir, `frame-${idx}.png`), Buffer.concat(chunks));
+            res.setHeader("content-type", "application/json");
+            res.end('{"ok":true}');
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String(e));
+          }
+        });
+      });
+      // Render export: end-of-run marker + fps/size metadata for qa/render.mjs.
+      server.middlewares.use("/__render/done", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+              id: string;
+            };
+            const dir = join(server.config.root, "qa-out", "render", body.id);
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, "meta.json"), JSON.stringify(body, null, 1));
             res.setHeader("content-type", "application/json");
             res.end('{"ok":true}');
           } catch (e) {

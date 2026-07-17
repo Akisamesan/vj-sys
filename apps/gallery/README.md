@@ -72,10 +72,31 @@ cost/luma used for blend-hold pairing):
 node qa/profile.mjs   # qa-out/report.json → src/scenes/profile.gen.ts
 ```
 
+## Exporting VJ material (Hap)
+
+Renders any scene offline with the same deterministic scripted audio the QA
+harness uses, then encodes the frame sequence into a Hap-codec `.mov` — a
+looping video file usable as material in external VJ software (Resolume,
+Modul8, CoGe, ...). Requires `ffmpeg` with the `hap` encoder
+(`ffmpeg -encoders | grep hap`; stock Ubuntu/Debian `ffmpeg` packages include
+it).
+
+```sh
+node qa/render.mjs http://localhost:5199/ 31-plasma                     # one scene, defaults (8s/30fps/960x540)
+node qa/render.mjs http://localhost:5199/ 02-reaction,44-platonic --secs 6 --w 1280 --h 720
+```
+
+Output: `qa-out/hap/<id>.mov`. `--format` selects the Hap variant: `hap`
+(DXT1, no alpha, smallest), `hap_alpha` (DXT5), or `hap_q` (DXT5-YCoCg,
+default — best quality). Frame PNGs land in `qa-out/render/<id>/` for
+inspection and aren't cleaned up automatically. `?render=<id>&secs=8&fps=30`
+in a normal browser runs the capture interactively (frames still POST to the
+dev server, so it needs `vp run gallery#dev` running).
+
 ## Engine
 
 - `engine/audio.ts` — bands, spectral flux, multi-band onsets, tempo + beat phase.
-- `engine/scripted.ts` — deterministic AudioEngine stand-in for QA.
+- `engine/scripted.ts` — deterministic AudioEngine stand-in for QA and render export.
 - `engine/demo.ts` — self-contained demo track.
 - `engine/gl.ts` / `engine/glsl.ts` — WebGL2 helpers + shared noise/curl/palette.
 - `engine/postfx.ts` — reusable HDR bloom → CA → grain → vignette → ACES.
@@ -84,4 +105,5 @@ node qa/profile.mjs   # qa-out/report.json → src/scenes/profile.gen.ts
 - `engine/director.ts` — seeded auto-VJ decision logic (cuts + blend-hold pairing).
 - `engine/live.ts` — live mode orchestration (slots, prefetch, holds, FPS guard, HUD).
 - `engine/qa.ts` — in-page QA measurement.
+- `engine/render.ts` — in-page Hap export capture (qa/render.mjs drives it headless).
 - `scenes/profile.gen.ts` — generated per-scene cost/luma profile (qa/profile.mjs).
